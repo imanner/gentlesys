@@ -1,5 +1,4 @@
-# bbsgo
-
+#
 打算开发一个论坛发布系统，后端使用GO语言。
 
 主要的组件为linux nginx mysql go 。后台的话使用beego作为web框架。
