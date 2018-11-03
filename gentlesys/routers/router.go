@@ -10,5 +10,9 @@ func init() {
 	beego.Router("/", &controllers.MainController{})
 
 	//有关主题的路由
-	beego.Router("/sjt:id:int", &controllers.SubjectController{})
+	beego.Router("/subject:id:int", &controllers.SubjectController{})
+
+	//发文章
+	beego.Router("/article", &controllers.ArticleController{})
+
 }

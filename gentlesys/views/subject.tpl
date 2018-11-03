@@ -24,21 +24,31 @@
 <div class="container-fluid">
 
 	<div class="row">
-	<div class="row root-css col-lg-10 col-lg-offset-1">
-		
-	  <hr>
+	<div class="row  col-lg-10 col-lg-offset-1">
       
 	  <div class="root-css col-lg-8">
+	  
 	  <ul class="breadcrumb">
        <li><a href="/">首页</a></li>
-       <li><a href="{{.HrefSub}}">{{.SubName}}</a></li>
+       <li class="active"><a href="{{.HrefSub}}">{{.SubName}}</a></li>
        </ul>
+       
+	  <ul class="pagination pagination-sm">
+        <li><a class="btn btn-default" href="/article{{.Args}}" role="button">发帖</a></li>
+    	<li><a href="{{.PrePage}}">&laquo;</a></li>
+    	 {{range .RecordIndexs}}
+        	<li class="{{.IsActive}}"><a href="{{.Ref}}">{{.Title}}</a></li>
+    	{{end}}
+    	<li><a href="{{.NextPage}}">&raquo;</a></li>
+      </ul>
+		
 	  <div class="list-group">
 	  {{range .Topic}}
     	  <li class="list-group-item">
     	  <a href="{{.Href}}">{{.Name}}</a>
-    	  <span class="badge">14</span>
-    	  <p class="list-group-item-text">这里是其他说明</p>
+    	  <span class="badge">热点</span>
+    	  <p class="list-group-item-text"><small>[ArName]&nbsp;&nbsp;•&nbsp;[Data]&nbsp;发布&nbsp;&nbsp;•&nbsp;[200000/20000000]</small></p>
+    	  
     	  </li>
 	  {{end}}
 	  </div>
