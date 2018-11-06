@@ -78,14 +78,83 @@ type Subject struct {
 	Id         int    `orm:"unique"` //文章ID,主键
 	UserId     int    //作者ID
 	UserName   string `orm:"size(32);null"`
-	Data       string
+	Date       string `orm:"size(32);null"`
 	Type       int    `orm:"null;default(0)"`     //类型： 吐槽 话题 求助 炫耀 失望
 	Title      string `orm:"size(128)"`           //帖子名称
 	ReadTimes  int    `orm:"null;default(0)"`     //阅读数
 	ReplyTimes int    `orm:"null;default(0)"`     //回复数
 	Disable    bool   `orm:"null;default(false)"` //禁用该帖子
 	Anonymity  bool   `orm:"null;default(false)"` //匿名发表
-	Path       string //文章路径，相对路径
+	Path       string `orm:"size(64)"`            //文章路径，相对路径
+}
+
+//返回主题上指定页的帖子列表，注意是倒序
+func (v *Subject) GetTopicListPageNum(subId int, pages int) *[]orm.Params {
+
+	end := int(subject.GetSubjectById(subId).CurTopicIndex) - pages*global.OnePageElementCount
+
+	if end <= 0 {
+		return nil
+	}
+	start := end - global.OnePageElementCount
+
+	if start <= 0 {
+		start = 0
+	}
+	//logs.Error("%d-%d\n", start, end)
+	o := orm.NewOrm()
+
+	// 获取 QuerySeter 对象，user 为表名
+	qs := o.QueryTable(fmt.Sprintf("sub%d", subId))
+	var posts []orm.Params
+	qs.Filter("id__gte", start).Filter("id__lte", end).OrderBy("-id").Values(&posts, "Id", "UserName", "Data", "Type", "Title", "ReadTimes", "ReplyTimes", "Anonymity")
+
+	return &posts
+}
+
+//从subx主题表中倒序读取一定数量的帖子
+func (s *Subject) GetTopicListSortByTime(subId int, nums int) *[]Subject { //单纯的按照发布时间先后排序
+
+	o := orm.NewOrm()
+
+	// 获取 QuerySeter 对象，user 为表名
+	qs := o.QueryTable(fmt.Sprintf("sub%d", subId))
+	var posts []orm.ParamsList
+	qs.OrderBy("-id").Limit(nums).ValuesList(&posts, "Id", "UserName", "Date", "Type", "Title", "ReadTimes", "ReplyTimes", "Anonymity")
+	var ret []Subject = make([]Subject, len(posts))
+	for i, k := range posts {
+		ret[i].Id = int(k[0].(int64))
+		ret[i].UserName = k[1].(string)
+		ret[i].Date = k[2].(string)
+		ret[i].Type = int(k[3].(int64))
+		ret[i].Title = k[4].(string)
+		ret[i].ReadTimes = int(k[5].(int64))
+		ret[i].ReplyTimes = int(k[6].(int64))
+		ret[i].Anonymity = k[7].(bool)
+	}
+	return &ret
+}
+
+/*从主题数据表中根据主题id找到该主题,1表示失败，0表示成功*/
+func ReadSubjectFromDb(subId int, topicId int) (int, *Subject) {
+	o := orm.NewOrm()
+
+	subInstance := GetInstanceById(subId)
+
+	subobj := subInstance.GetSubject()
+	subobj.Id = topicId
+
+	err := o.Read(subInstance)
+
+	if err == orm.ErrNoRows {
+		//logs.Error(err, "查询不到")
+		return 1, nil
+	} else if err == orm.ErrMissPK {
+		//logs.Error(err, "找不到主键")
+		return 1, nil
+	}
+
+	return 0, subobj
 }
 
 func registerDB() {
@@ -133,7 +202,7 @@ func (v *CommitArticle) WriteDb() (int, *Subject) {
 	aTopic.UserName = v.UserName
 	aTopic.Type = v.Type
 	aTopic.Title = v.Title
-	aTopic.Data = time.Now().Format("2006-01-02 15:04:05")
+	aTopic.Date = time.Now().Format("2006-01-02 15:04:05")
 	aTopic.Anonymity = v.Anonymity
 
 	id, err := o.Insert(aTopicInter)
@@ -157,6 +226,8 @@ func (v *CommitArticle) WriteDb() (int, *Subject) {
 	if err2 != nil {
 		logs.Error(err2, aTopic.Id)
 	}
+
+	//aTopic.Href = fmt.Sprintf("/browse?sid=%d&aid=%d", v.SubId, aTopic.Id)
 
 	if _, err := o.Update(aTopicInter, "Path"); err != nil {
 		return 0, nil

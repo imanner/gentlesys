@@ -114,7 +114,6 @@ type TranInterface interface {
 }
 
 func GetInstanceById(id int) TranInterface {
-
 	switch id {
 	case 0:
 		return new(Sub0)

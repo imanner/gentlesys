@@ -40,7 +40,7 @@
 	    </div>
 	    <div class="media-body">
 	      <h5 class="media-heading"><a href="{{.Href}}">{{.Name}}</a></h5>
-		  <small>主题: {{.SubNums}} 帖数: {{.TalkNums}}</small>
+		  <small>帖数: {{.CurTopicIndex}}</small>
 	      <small>{{.Desc}}</small>
 	    </div>
 		<hr>

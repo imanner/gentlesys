@@ -1,0 +1,16 @@
+syntax = "proto2";
+
+package comment;
+
+
+message CommentStory {
+	repeated CommentData commentdata = 1; /*基本的所以记忆体*/
+}
+
+message CommentData {
+	optional string userName  = 1;    /*谁评论的*/
+	optional string answerName = 2;    /*回复谁*/
+	optional string time = 3;    /*评论时间*/
+	optional string content =4; /*评论内容*/
+}
+

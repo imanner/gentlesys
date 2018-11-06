@@ -15,4 +15,9 @@ func init() {
 	//发文章
 	beego.Router("/article", &controllers.ArticleController{})
 
+	//浏览文章
+	beego.Router("/browse", &controllers.BrowseController{})
+
+	//评论文章
+	beego.Router("/comment", &controllers.CommentController{})
 }

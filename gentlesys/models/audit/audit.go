@@ -45,6 +45,8 @@ func init() {
 	ArticleDir = global.GetStringFromCfg("common::articleDirPath", "")
 	cfgStrMap["articleDirPath"] = ArticleDir
 
+	cfgStrMap["commentDirPath"] = global.GetStringFromCfg("common::commentDirPath", "")
+
 }
 
 func IsAdmin(id int) bool {

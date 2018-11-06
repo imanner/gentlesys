@@ -27,12 +27,8 @@
 	<div class="row  col-lg-10 col-lg-offset-1">
       
 	  <div class="root-css col-lg-8">
-	  
-	  <ul class="breadcrumb">
-       <li><a href="/">首页</a></li>
-       <li class="active"><a href="{{.HrefSub}}">{{.SubName}}</a></li>
-       </ul>
-       
+      <p class="crumbs"><a href="/">首页</a> &gt;  <a href="{{.HrefSub}}">{{.SubName}}</a></p>
+
 	  <ul class="pagination pagination-sm">
         <li><a class="btn btn-default" href="/article{{.Args}}" role="button">发帖</a></li>
     	<li><a href="{{.PrePage}}">&laquo;</a></li>
@@ -41,17 +37,19 @@
     	{{end}}
     	<li><a href="{{.NextPage}}">&raquo;</a></li>
       </ul>
-		
-	  <div class="list-group">
-	  {{range .Topic}}
-    	  <li class="list-group-item">
-    	  <a href="{{.Href}}">{{.Name}}</a>
-    	  <span class="badge">热点</span>
-    	  <p class="list-group-item-text"><small>[ArName]&nbsp;&nbsp;•&nbsp;[Data]&nbsp;发布&nbsp;&nbsp;•&nbsp;[200000/20000000]</small></p>
-    	  
-    	  </li>
-	  {{end}}
-	  </div>
+
+	  <table class="table table-condensed mtable-css"> 
+        <tbody>
+         {{range .Topic}}
+         <tr>
+            <td>
+            <h5> <a href="/browse?sid={{$.Sid}}&aid={{.Id}}">{{.Title}}</a></h5>
+            <small>{{.UserName}}&nbsp;&nbsp;•&nbsp;{{.Date}}&nbsp;发布&nbsp;&nbsp;•&nbsp;[{{.ReadTimes}}/{{.ReplyTimes}}]</small>
+            </td>
+         </tr>
+         {{end}}
+         </tbody>
+       </table>
 	  </div>
 			
 	</div>

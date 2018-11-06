@@ -3,15 +3,24 @@ package subject
 import (
 	"fmt"
 	"gentlesys/global"
+	"sync/atomic"
 )
 
 type subNode struct {
-	Name     string
-	Href     string
-	Desc     string
-	UniqueId int //在数据库中话题对于的唯一类型id
-	SubNums  int
-	TalkNums int
+	Name          string
+	Href          string
+	Desc          string
+	UniqueId      int   //在数据库中话题对于的唯一类型IsSubjectIdExist()
+	CurTopicIndex int32 //主题中当前帖子的索引
+}
+
+//原子更新当前帖子的索引
+func UpdateCurTopicIndex(subId int, value int) {
+	atomic.StoreInt32(&((*subNodes)[subId].CurTopicIndex), int32(value))
+}
+
+func GetCurTotalTopicNums(subId int) int {
+	return int((*subNodes)[subId].CurTopicIndex)
 }
 
 var subNodes *[]subNode = nil
@@ -23,7 +32,9 @@ func init() {
 	//预先做下初始化，避免一些Get空指针
 	subNodes = getMainPageSubjectCfg()
 
+	//初始化话题类型列表
 	initTopicTypeList()
+
 }
 
 //检查主题id是否存在
@@ -72,19 +83,19 @@ func getMainPageSubjectCfg() *[]subNode {
 	return nil
 }
 
-//有关话题的操作。
-var topList []string = nil
+//有关话题类型的操作。
+var topicTyleList []string = nil
 
-func GetTopList() *[]string {
-	if topList != nil {
-		return &topList
+func GetTopicTyleList() *[]string {
+	if topicTyleList != nil {
+		return &topicTyleList
 	}
 	return nil
 }
 
-func GetTopicById(id int) string {
-	if topList != nil && id >= 0 && id < len(topList) {
-		return topList[id]
+func GetTopicTyleById(id int) string {
+	if topicTyleList != nil && id >= 0 && id < len(topicTyleList) {
+		return topicTyleList[id]
 	}
 	return ""
 }
@@ -92,10 +103,10 @@ func GetTopicById(id int) string {
 func initTopicTypeList() {
 	nums := global.GetIntFromCfg("topic::nums", 0)
 	if nums > 0 {
-		topList = make([]string, nums)
+		topicTyleList = make([]string, nums)
 		for i := 0; i < nums; i++ {
 			name_ := fmt.Sprintf("topic::id.%d.name", i)
-			topList[i] = global.GetStringFromCfg(name_, "")
+			topicTyleList[i] = global.GetStringFromCfg(name_, "")
 		}
 	}
 }

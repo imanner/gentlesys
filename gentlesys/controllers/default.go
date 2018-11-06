@@ -2,12 +2,17 @@ package controllers
 
 import (
 	"fmt"
+	"gentlesys/cachemanager"
+	"gentlesys/comment"
 	"gentlesys/global"
 	"gentlesys/models/audit"
 	"gentlesys/models/navigation"
 	"gentlesys/models/sqlsys"
 	"gentlesys/subject"
+	"io/ioutil"
+	"os"
 	"strconv"
+	"strings"
 
 	"github.com/astaxie/beego/validation"
 
@@ -72,7 +77,7 @@ func (c *SubjectController) Get() {
 
 	urlPrex := fmt.Sprintf("subject%s", sid)
 
-	records, prev, next := global.CreateNavIndex(pageIndex, 100, urlPrex)
+	records, prev, next := global.CreateNavIndex(pageIndex, subject.GetCurTotalTopicNums(numId), urlPrex)
 	if records != nil {
 		c.Data["RecordIndexs"] = records
 		c.Data["PrePage"] = prev
@@ -87,7 +92,15 @@ func (c *SubjectController) Get() {
 	c.Data["Args"] = fmt.Sprintf("?sid=%s", sid)
 	c.Data["HrefSub"] = subobj.Href
 	c.Data["SubName"] = subobj.Name
-	c.Data["Topic"] = subject.GetMainPageSubjectData()
+	c.Data["Sid"] = subobj.UniqueId
+
+	if pageIndex >= 0 && pageIndex < global.CachePagesNums {
+		//如果是首页，首页特殊处理，因为首页可能实时发帖更新
+		c.Data["Topic"] = cachemanager.CacheSubjectObjMaps[numId].ReadElementsWithPageNums(pageIndex)
+	} else {
+		//其他页呢，可以走ngnix的缓存页面，可以直接从数据库查询
+		c.Data["Topic"] = (*sqlsys.Subject)(nil).GetTopicListPageNum(numId, pageIndex)
+	}
 	c.TplName = "subject.tpl"
 }
 
@@ -118,7 +131,7 @@ func (c *ArticleController) Get() {
 	c.Data["Nav"] = ""
 	c.Data["UserId"] = 123
 	c.Data["UserName"] = "123"
-	c.Data["TopicType"] = subject.GetTopList()
+	c.Data["TopicType"] = subject.GetTopicTyleList()
 	c.Data["Sid"] = sid
 
 	c.TplName = "topic.tpl"
@@ -162,10 +175,10 @@ func (c *ArticleController) Post() {
 		}
 
 		u.UserId = userAudit.UserId
-		r, _ := u.WriteDb()
+		r, topic := u.WriteDb()
 		if r != 0 {
 			//这里表示文章已经保存到数据库，原子更新数据库当前索引值
-			//atomic.StoreUint32(&mysqlTool.ShareCureIndex, r)
+			subject.UpdateCurTopicIndex(u.SubId, r)
 
 			//更新用户的发帖记录
 			userAudit.TlArticleNums++
@@ -173,9 +186,9 @@ func (c *ArticleController) Post() {
 
 			userAudit.UpdataDayArticle()
 			//将返回地址返回给客户端，让其跳转
-			ret := fmt.Sprintf("[0]/aid%d", r)
+			ret := fmt.Sprintf("[0]/browse?sid=%d&aid=%d", u.SubId, r)
 			c.Ctx.WriteString(ret)
-
+			cachemanager.CacheSubjectObjMaps[u.SubId].AddElementAtFront(topic)
 			//把主页main也刷新下，让用户能够实时看到自己的帖子
 			//mysqlTool.UpdataMainPageDataRealTime(r, s)
 			//处理匿名
@@ -192,4 +205,139 @@ func (c *ArticleController) Post() {
 		}
 	}
 
+}
+
+//浏览文章的路由
+type BrowseController struct {
+	beego.Controller
+}
+
+//获取评论
+func (c *BrowseController) GetComment(filePath string) *[]*comment.CommentData {
+	isExist := comment.CheckExists(filePath)
+	if !isExist {
+		return nil
+	}
+
+	fd, _ := os.OpenFile(filePath, os.O_RDONLY, 0644)
+	defer fd.Close()
+
+	ctobj := &comment.Comment{}
+	ctobj.Fd = fd
+	ret, _ := ctobj.GetOnePageComments(0)
+	return ret
+}
+
+func (c *BrowseController) Get() {
+
+	sid, _ := c.GetInt("sid", -1)
+	aid, _ := c.GetInt("aid", -1)
+
+	if sid == -1 || aid == -1 || !subject.IsSubjectIdExist(sid) {
+		logs.Error("BrowseController err", sid, aid)
+		c.Abort("401")
+		return
+	}
+
+	ret, subobj := sqlsys.ReadSubjectFromDb(sid, aid)
+	if 0 == ret {
+		if subobj.Disable {
+			c.Ctx.WriteString("[3]文章不符合审核规定，已经被禁用！")
+			return
+		}
+		c.Data["Type"] = subobj.Type
+
+		if subobj.Anonymity {
+			c.Data["UserName"] = "匿名网友"
+		} else {
+			c.Data["UserName"] = subobj.UserName
+		}
+
+		c.Data["Title"] = subobj.Title
+		c.Data["Nav"] = navigation.GetNav()
+		c.Data["Date"] = subobj.Date
+
+		subnodes := subject.GetSubjectById(sid)
+
+		c.Data["HrefSub"] = subnodes.Href
+		c.Data["SubName"] = subnodes.Name
+
+		c.Data["Sid"] = sid
+		c.Data["Aid"] = aid
+
+		comments := c.GetComment(fmt.Sprintf("%s\\s%d_a%d", audit.GetCommonStrCfg("commentDirPath"), sid, aid))
+		if comments != nil {
+			c.Data["Comments"] = comments
+		}
+
+		if subobj.Path == "" {
+			c.Data["Story"] = "很遗憾，用户没有留下TA的故事"
+		} else {
+			path := fmt.Sprintf("%s/%s", audit.ArticleDir, subobj.Path)
+			if fileObj, err := os.Open(path); err == nil {
+				defer fileObj.Close()
+				if contents, err := ioutil.ReadAll(fileObj); err == nil {
+					result := strings.Replace(string(contents), "\n", "", 1)
+					c.Data["Story"] = result
+				}
+
+			} else {
+				c.Data["Story"] = "很遗憾，用户没有留下TA的故事"
+			}
+		}
+		c.TplName = "browse.tpl"
+
+	} else {
+		c.Abort("401")
+	}
+}
+
+//评论，从客户端提交过来的数据
+type Comment struct {
+	ArtiId int    `form:"aid_" valid:"Required“`     //文章Id
+	SubId  int    `form:"sid_" valid:"Required“`     //主题id
+	Value  string `form:"comment_" valid:"Required“` //主题id
+}
+
+//评论文章的路由
+type CommentController struct {
+	beego.Controller
+}
+
+//提交评论文章
+func (c *CommentController) Post() {
+
+	u := &Comment{}
+	if err := c.ParseForm(u); err != nil {
+		c.Ctx.WriteString("[2]格式不对，请修正！")
+	} else {
+
+		if !DealParameterCheck(u, "[3]数据格式异常，请修正！", &c.Controller) {
+			return
+		}
+	}
+
+	aData := &comment.CommentData{}
+	aData.Content = &u.Value
+	filePath := fmt.Sprintf("%s\\s%d_a%d", audit.GetCommonStrCfg("commentDirPath"), u.SubId, u.ArtiId)
+
+	ctobj := comment.GetCommentHandlerByPath(fmt.Sprintf("%s_%s", u.SubId, u.ArtiId))
+
+	ctobj.Mutex.Lock()
+	defer ctobj.Mutex.Unlock()
+
+	isExist := comment.CheckExists(filePath)
+
+	fd, _ := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0644)
+	defer fd.Close()
+
+	ctobj.Fd = fd
+	if !isExist {
+		ctobj.InitMcData()
+	}
+	if ctobj.AddOneComment(aData) {
+		c.Ctx.WriteString("[0]提交点评成功")
+	} else {
+		c.Ctx.WriteString("[1]提交点评失败")
+	}
 }
