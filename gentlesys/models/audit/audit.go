@@ -39,13 +39,14 @@ func init() {
 	cfgStrMap = make(map[string]string)
 
 	//读取一个玩家每日最大发帖量
-	aUserdayMax := global.GetIntFromCfg("common::aUserDayMaxArticle", 30)
-	cfgIntMap["aUserDayMaxArticle"] = aUserdayMax
+	cfgIntMap["aUserDayMaxArticle"] = global.GetIntFromCfg("common::aUserDayMaxArticle", 30)
 
 	ArticleDir = global.GetStringFromCfg("common::articleDirPath", "")
 	cfgStrMap["articleDirPath"] = ArticleDir
 
 	cfgStrMap["commentDirPath"] = global.GetStringFromCfg("common::commentDirPath", "")
+	//当日最大登录失败次数
+	cfgIntMap["dayLogFailTime"] = global.GetIntFromCfg("common::dayLogFailTime", 5)
 
 }
 

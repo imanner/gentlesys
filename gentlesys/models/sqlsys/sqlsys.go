@@ -1,6 +1,7 @@
 package sqlsys
 
 import (
+	"crypto/md5"
 	"fmt"
 	"gentlesys/global"
 	"gentlesys/models/audit"
@@ -22,8 +23,146 @@ type User struct {
 	Passwd  string    `orm:"size(32)" form:"passwd_" valid:"Required;MinSize(6);MaxSize(32)“` //密码
 	Birth   time.Time `orm:"size(12);auto_now_add;type(date)"`                                //注册时间
 	Lastlog time.Time `orm:"size(12);auto_now;null;type(date)"`                               //上次登录时间
-	Fail    int32     `orm:"null;"`                                                           //登录失败的次数                                           //连续登录失败的次数，做安全防护
-	Mail    string    `form:"mail_"`                                                          //禁止操作的天数
+	Fail    int       `orm:"null;"`                                                           //登录失败的次数                                           //连续登录失败的次数，做安全防护
+	Mail    string    `orm:"size(64);default("")" form:"mail_"`                               //邮箱
+}
+
+const ERR_NO_USERNAME = 1         //没有该用户
+const ERR_AUTH_FAIL = 2           //认证失败
+const ERR_USERNAME_NOT_UNIQUE = 3 //用户名不是唯一
+const ERR_FAIL_FORBID = 4         //登录失败过多被锁定
+
+func (v *User) UpdatePasswdByName() int {
+	o := orm.NewOrm()
+
+	// 获取 QuerySeter 对象，user 为表名
+	qs := o.QueryTable(v)
+	oldUser := &User{}
+	err := qs.Filter("Name", v.Name).One(oldUser)
+	if err == orm.ErrMultiRows {
+		// 多条的时候报错
+		logs.Error("更新密码：用户名不是唯一")
+		return ERR_USERNAME_NOT_UNIQUE
+	}
+	if err == orm.ErrNoRows {
+		// 没有找到记录
+		logs.Error("更新密码：没有该用户", v.Name)
+		return ERR_NO_USERNAME
+	}
+
+	v.Id = oldUser.Id
+
+	if _, err := o.Update(v, "Passwd"); err == nil {
+		return 0
+	} else {
+		logs.Error(err, "更新密码错误")
+	}
+
+	return 1
+}
+
+//通过名字寻找邮箱
+func (v *User) FindMailByName() int {
+	o := orm.NewOrm()
+	// 获取 QuerySeter 对象，user 为表名
+	qs := o.QueryTable(v)
+	err := qs.Filter("Name", v.Name).One(v)
+	if err == orm.ErrMultiRows {
+		// 多条的时候报错
+		logs.Error(err, "用户名不是唯一")
+		return ERR_USERNAME_NOT_UNIQUE
+	}
+	if err == orm.ErrNoRows {
+		// 没有找到记录
+		logs.Error(err, "没有该用户", v.Name)
+		return ERR_NO_USERNAME
+	}
+	return 0
+}
+
+//检查用户名是否被使用
+func (v *User) CheckUserExist() bool {
+	o := orm.NewOrm()
+	// 获取 QuerySeter 对象，user 为表名
+	qs := o.QueryTable((*User)(nil))
+
+	return qs.Filter("Name", v.Name).Exist()
+}
+
+//成功返回0
+func (v *User) CheckUserAuth() int {
+
+	var auser User
+
+	o := orm.NewOrm()
+
+	// 获取 QuerySeter 对象，user 为表名
+	qs := o.QueryTable("user")
+
+	err := qs.Filter("Name", v.Name).One(&auser)
+	if err == orm.ErrMultiRows {
+		// 多条的时候报错
+		logs.Error(err, "认证失败：用户名不是唯一")
+		return ERR_USERNAME_NOT_UNIQUE
+	}
+	if err == orm.ErrNoRows {
+		// 没有找到记录
+		logs.Error("认证失败：没有该用户", v.Name)
+		return ERR_NO_USERNAME
+	}
+
+	v.Id = auser.Id
+	//错误次数过多，禁止登陆
+	if auser.Fail > audit.GetCommonIntCfg("dayLogFailTime") {
+		return ERR_FAIL_FORBID
+	}
+
+	if auser.Passwd == v.Passwd {
+		return 0
+	}
+	//存在用户，但是密码错误
+	v.Fail = auser.Fail
+	return ERR_AUTH_FAIL
+}
+
+func (v *User) WriteDb() int {
+	o := orm.NewOrm()
+
+	id, err := o.Insert(v)
+	if err != nil {
+		logs.Error(err, id)
+		return 0
+	}
+
+	return int(id)
+}
+
+func (v *User) ReadDb() bool {
+	o := orm.NewOrm()
+	//aShare := Share{Id: id}
+
+	err := o.Read(v)
+
+	if err == orm.ErrNoRows {
+		logs.Error(err, "查询不到")
+		return false
+	} else if err == orm.ErrMissPK {
+		logs.Error(err, "找不到主键")
+		return false
+	}
+	return true
+}
+
+//更新用户信息失败次数
+func (v *User) UpdateFail() bool {
+	o := orm.NewOrm()
+	if _, err := o.Update(v, "Fail"); err == nil {
+		return true
+	} else {
+		logs.Error(err, "更新错误")
+	}
+
+	return false
 }
 
 //用户记录行为的表,防止灌水等，做安全使用
@@ -165,7 +304,7 @@ func registerDB() {
 	} else {
 		panic("没有配置mysql的认证项...")
 	}
-	orm.RegisterModel(new(User), new(UserAudit))
+	orm.RegisterModel(new(User), new(UserAudit), new(PasswdReset))
 	subs := subject.GetMainPageSubjectData()
 	for _, v := range *subs {
 		orm.RegisterModel(GetInstanceById(v.UniqueId))
@@ -188,8 +327,8 @@ type CommitArticle struct {
 	Type      int    `form:"type_"`                    //话题类型
 	Anonymity bool   `form:"anonymity_"`               //是否匿名
 	UserName  string `form:"userName_" valid:"MinSize(1);MaxSize(32)" `
-	Title     string `form:"title_" valid:"MinSize(1);MaxSize(128)"`
-	Story     string `form:"story_" valid:"MaxSize(1000000)"`
+	Title     string `form:"title_" valid:"Required;MinSize(1);MaxSize(128)"`
+	Story     string `form:"story_" valid:"Required;MaxSize(1000000)"`
 }
 
 func (v *CommitArticle) WriteDb() (int, *Subject) {
@@ -234,4 +373,48 @@ func (v *CommitArticle) WriteDb() (int, *Subject) {
 	}
 
 	return aTopic.Id, aTopic
+}
+
+//用户重置密码的数据库相关字段
+type PasswdReset struct {
+	UserId string `orm:"unique;pk" valid:"MinSize(1);MaxSize(32)"` //用户名的md5
+	Name   string `orm:"size(32)" valid:"Required;MinSize(1);MaxSize(32)"`
+}
+
+func (v *PasswdReset) Delete() {
+	o := orm.NewOrm()
+	o.Delete(v)
+}
+
+func (v *PasswdReset) ReadDb() bool {
+	o := orm.NewOrm()
+
+	err := o.Read(v)
+
+	if err == orm.ErrNoRows {
+		//logs.Error(err, "查询不到")
+		return false
+	} else if err == orm.ErrMissPK {
+		//logs.Error(err, "找不到主键")
+		return false
+	}
+
+	return true
+}
+
+//数据库插入值
+func (v *PasswdReset) InsertByName() bool {
+
+	t := time.Now()
+
+	data := []byte(fmt.Sprintf("%s%d", v.Name, t.Unix()))
+	mds := md5.Sum(data)
+	o := orm.NewOrm()
+	v.UserId = fmt.Sprintf("%x", mds) //将[]byte转成16进制
+	id, err := o.Insert(v)
+	if err != nil {
+		logs.Error(err, id)
+		return false
+	}
+	return true
 }

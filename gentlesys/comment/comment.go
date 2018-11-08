@@ -8,33 +8,28 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
-var commentHandlerManager map[string]*Comment
-var commentHandlerMutex sync.Mutex //保护commentHandlerManager的锁
+var commentHandlerManager sync.Map
 
 func init() {
-	commentHandlerManager = make(map[string]*Comment)
+
 }
 
-//所有获取Comment都必须通过该接口，防止异步读写文件冲突
+//所有获取Comment都必须通过该接口，防止异步读写文件冲突，但是commentHandlerManager的清理是个问题
 func GetCommentHandlerByPath(filePath string) *Comment {
-	commentHandlerMutex.Lock()
-	defer commentHandlerMutex.Unlock()
+	obj, _ := commentHandlerManager.LoadOrStore(filePath, new(Comment))
+	return obj.(*Comment)
+}
 
-	obj, ok := commentHandlerManager[filePath]
-	if ok {
-		//已经存在该句柄
-		return obj
-	} else {
-		commentHandlerManager[filePath] = new(Comment)
-	}
-	return commentHandlerManager[filePath]
+//map里面存放的是Comment地址，就算删除地址，不会影响Comment本身的存在。防止commentHandlerManager过大爆炸
+func DelCommentHandlerByPath(filePath string) {
+	commentHandlerManager.Delete(filePath)
 }
 
 //相关的功能在此
 type Comment struct {
 	FilePath string
 	Fd       *os.File
-	Mutex    sync.Mutex //用于保护结构体的锁，保护文件的读写，防止异步写
+	Mutex    sync.RWMutex //用于保护结构体的锁，保护文件的读写，防止异步写
 }
 
 //读当前的评论块，每个块包含OnePageCommentNum条记录

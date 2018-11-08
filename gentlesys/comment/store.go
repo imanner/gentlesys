@@ -29,11 +29,24 @@ const OnePageCommentNum = 20 //一页最多多少条评论。目前20*512=10240�
 
 const ErrMetaMcSize = 512
 
-const McDataIndexHeadSize = 6 //McDataIndexHead结构体的长度
+const McDataIndexHeadSize = 8 //McDataIndexHead结构体的长度
 
 type McDataIndexHead struct {
-	Start  int32 /*开始偏移量*/
-	Length int16 /*一块data的长度。OnePageCommentNum条评论共用该空间，目前看是够了。*/
+	Start  uint32 /*开始偏移量*/
+	Length uint32 /*一块data的长度。OnePageCommentNum条评论共用该空间，目前看是够了。*/
+}
+
+//获取帖子的评论数量,不准确，只能在页范围内，不影响索引
+func GetCommentNums(filePath string) int {
+
+	if CheckExists(filePath) {
+		fd, _ := os.OpenFile(filePath, os.O_RDWR, 0644)
+		defer fd.Close()
+		if nums, ok := GetCurUsedId(fd); ok {
+			return int(nums) + 1
+		}
+	}
+	return 0
 }
 
 //返回当前的元数据
@@ -66,8 +79,8 @@ func ReadMetaData(fd *os.File, index int, mcHead *McDataIndexHead) bool {
 
 	n1, _ := fd.ReadAt(buf, int64(start))
 	if n1 >= McDataIndexHeadSize {
-		mcHead.Start = int32(binary.LittleEndian.Uint32(buf[:Int32Bytes]))
-		mcHead.Length = int16(binary.LittleEndian.Uint16(buf[Int32Bytes:]))
+		mcHead.Start = binary.LittleEndian.Uint32(buf[:Int32Bytes])
+		mcHead.Length = binary.LittleEndian.Uint32(buf[Int32Bytes:])
 		return true
 	}
 	return false
@@ -89,8 +102,8 @@ func AppendMetaData(fd *os.File, mcHead *McDataIndexHead) bool {
 		//fd.Seek(int64(start), 0)
 		buf := make([]byte, McDataIndexHeadSize)
 
-		binary.LittleEndian.PutUint32(buf, uint32(mcHead.Start))
-		binary.LittleEndian.PutUint16(buf[Int32Bytes:], uint16(mcHead.Length))
+		binary.LittleEndian.PutUint32(buf, mcHead.Start)
+		binary.LittleEndian.PutUint32(buf[Int32Bytes:], mcHead.Length)
 
 		//fmt.Fprintf(fd, "%x", buf)
 		fd.WriteAt(buf, int64(start))
@@ -110,8 +123,8 @@ func UpdateMetaData(fd *os.File, index int, mcHead *McDataIndexHead) bool {
 	//fd.Seek(int64(start), 0)
 	buf := make([]byte, McDataIndexHeadSize)
 
-	binary.LittleEndian.PutUint32(buf, uint32(mcHead.Start))
-	binary.LittleEndian.PutUint16(buf[Int32Bytes:], uint16(mcHead.Length))
+	binary.LittleEndian.PutUint32(buf, mcHead.Start)
+	binary.LittleEndian.PutUint32(buf[Int32Bytes:], mcHead.Length)
 
 	//fmt.Fprintf(fd, "%x", buf)
 	fd.WriteAt(buf, int64(start))
@@ -172,8 +185,8 @@ func UpdateTailBlockToStore(fd *os.File, content []byte, isCurMcFill bool) bool 
 	fd.WriteAt(content, cur_offset)
 
 	//更新元数据
-	aMeta.Start = int32(cur_offset)
-	aMeta.Length = int16(len(content))
+	aMeta.Start = uint32(cur_offset)
+	aMeta.Length = uint32(len(content))
 
 	ok = UpdateMetaData(fd, int(useId), aMeta)
 	if !ok {
@@ -188,7 +201,7 @@ func UpdateTailBlockToStore(fd *os.File, content []byte, isCurMcFill bool) bool 
 			binary.LittleEndian.PutUint32(used, uint32(useId))
 			fd.WriteAt(used, 0)
 			//初始化新块的start,否则新块的start会从0开始。
-			aMeta.Start += int32(aMeta.Length)
+			aMeta.Start += uint32(aMeta.Length)
 			aMeta.Length = 0
 			UpdateMetaData(fd, int(useId), aMeta)
 		} else {

@@ -24,10 +24,10 @@
 <div class="container-fluid">
 
 	<div class="row">
-	<div class="row  col-lg-10 col-lg-offset-1">
+	<div class="col-lg-10 col-lg-offset-1">
       
 	  <div class="root-css col-lg-8">
-      <p class="crumbs"><a href="/">首页</a> &gt;  <a href="{{.HrefSub}}">{{.SubName}}</a></p>
+      <p class="crumbs"><a href="/">首页</a> &gt;  <a href="{{.HrefSub}}">{{.SubName}}</a>&gt;<a href="/article{{.Args}}">[我要发帖]</a></p>
 
 	  <ul class="pagination pagination-sm">
         <li><a class="btn btn-default" href="/article{{.Args}}" role="button">发帖</a></li>
@@ -37,7 +37,6 @@
     	{{end}}
     	<li><a href="{{.NextPage}}">&raquo;</a></li>
       </ul>
-
 	  <table class="table table-condensed mtable-css"> 
         <tbody>
          {{range .Topic}}
@@ -50,6 +49,10 @@
          {{end}}
          </tbody>
        </table>
+       {{if .NoMore}}
+        <hr />
+        <p>没有更多帖子了...</p>
+       {{end}}
 	  </div>
 			
 	</div>
