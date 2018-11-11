@@ -45,6 +45,8 @@ func init() {
 	cfgStrMap["articleDirPath"] = ArticleDir
 
 	cfgStrMap["commentDirPath"] = global.GetStringFromCfg("common::commentDirPath", "")
+	cfgStrMap["userTopicDirPath"] = global.GetStringFromCfg("common::userTopicDirPath", "")
+
 	//当日最大登录失败次数
 	cfgIntMap["dayLogFailTime"] = global.GetIntFromCfg("common::dayLogFailTime", 5)
 

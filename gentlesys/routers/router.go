@@ -33,4 +33,6 @@ func init() {
 	beego.Router("/repasswd=:id:string", &controllers.RePasswdController{})
 	//提交更新密码Post
 	beego.Router("/updatepd", &controllers.UpdatePasswdController{})
+	//用户中心
+	beego.Router("/usif", &controllers.UserInfoController{})
 }

@@ -32,13 +32,11 @@
 			//遍历匹配
 			for ( var i = 0; i < arrcookie.length; i++) {
 				var arr = arrcookie[i].split("=");
-				if (arr[0] == "user" && arr[1] != "游客"){
+				if (arr[0] == "user" && arr[1] != ""){
 					document.getElementById("user").innerHTML=(arr[1]);
 					return ;
 				}
 			}
-			document.getElementById("user").innerHTML=("游客");
-			return ;
 		}
 		getCookieUser();
     </script>

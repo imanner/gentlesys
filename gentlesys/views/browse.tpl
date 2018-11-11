@@ -63,7 +63,7 @@
     	<li><a href="{{.NextPage}}">&raquo;</a></li>
     </ul>
     {{range .Comments}}
-       <p class="comment-css">{{.UserName}}&nbsp;&nbsp;{{.Time}}</p>
+       <p class="comment-css">{{.UserName}}&nbsp;&nbsp;{{.Time}} <a class="btn-sm" href="#write" onclick="test({{.UserName}})">回复</a></p>
        <p>{{str2html .Content}}</p>
        <h5 class="page-header"></h5>
     {{end}}
@@ -76,7 +76,7 @@
      
     {{if .CanReplay}}
     <p class="h5">你的回应 ...... (提示：字数不能超过1000)</p>
-    <div>
+    <div id="write">
     <textarea id="text" name="content" rows="10" style="width:100%;"></textarea>
     </div>
    
@@ -102,11 +102,11 @@
         }
     });
     });
+	function test(name){
+		ke.html("<p>@"+name+"</p><p><br/></p>");
+	}
 	function comment() {
-		if ("游客" == getUser()) {
-			document.getElementById("botinfo").innerHTML=("您还没登录，不能留言，请先登录...");
-			return
-		}
+		
 			
 		var text = document.getElementById("text").value;
 		if (text.length < 1) {
@@ -140,8 +140,9 @@
 						document.getElementById("botinfo").innerHTML=(msg);
 		          	} else {
 					    btn.attr("disabled", true);
-						document.getElementById("botinfo").innerHTML=("你的评论已经成功发布! 待系统审核后才能显示，请不要重复提交。");
-						location.reload();
+						document.getElementById("botinfo").innerHTML=("你的评论已经成功发布!请不要重复提交。");
+						window.location.href=msg.substr(3)
+						//alert("评论已经成功发布");
 		          	}
 		          }
 		        });

@@ -1,5 +1,7 @@
 package comment
 
+//与评论相关的在此。这个文件
+
 import (
 	"fmt"
 	"os"
@@ -63,12 +65,12 @@ func (c *Comment) InitMcData() {
 	c.Fd.WriteAt(content, cur_offset)
 }
 
-//增加一条评论
-func (c *Comment) AddOneComment(data *CommentData) bool {
+//增加一条评论，返回最后评论页面index
+func (c *Comment) AddOneComment(data *CommentData) (bool, int) {
 
 	srcData, ok := c.ReadCurCommentBlock()
 	if !ok {
-		return false
+		return false, 0
 	}
 
 	srcData.Commentdata = append(srcData.Commentdata, data)
@@ -81,7 +83,7 @@ func (c *Comment) AddOneComment(data *CommentData) bool {
 		isCurMcFull = true
 		fmt.Printf("full len %d ", len(srcData.Commentdata))
 	}
-	fmt.Printf("update len %d ", len(srcData.Commentdata))
+	//fmt.Printf("update len %d ", len(srcData.Commentdata))
 	return UpdateTailBlockToStore(c.Fd, mdata, isCurMcFull)
 
 }

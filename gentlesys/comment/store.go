@@ -10,7 +10,7 @@ import (
 )
 
 /*我需要学硬盘一样，在头部编写一个零号扇区，这个扇区管制这所以的数据。但是最多可以有1024个结构体
-即comment.mc的格式为，头部有一个1024的结构体体，控制着所有存储块
+即comment.mc的格式为，头部有一个1024的结构体体，控制着所有存储块。这是一个通用的存储结构
 */
 
 type Metadata struct {
@@ -164,13 +164,13 @@ func AppendOneBlockToStore(fd *os.File, content []byte) bool {
 */
 
 //更新当前尾部的一块数据，前面的不能更新，因为写是追加的,故只能更新尾部的。
-func UpdateTailBlockToStore(fd *os.File, content []byte, isCurMcFill bool) bool {
+func UpdateTailBlockToStore(fd *os.File, content []byte, isCurMcFill bool) (bool, int) {
 
 	//走到该函数，说明尾部是没有满的
 	//读取当前使用块
 	useId, ok := GetCurUsedId(fd)
 	if !ok {
-		return false
+		return false, 0
 	}
 
 	aMeta := &McDataIndexHead{}
@@ -190,9 +190,10 @@ func UpdateTailBlockToStore(fd *os.File, content []byte, isCurMcFill bool) bool 
 
 	ok = UpdateMetaData(fd, int(useId), aMeta)
 	if !ok {
-		return false
+		return false, 0
 	}
 
+	curLastPage := int(useId)
 	if isCurMcFill {
 		//如果满了，则更新useId
 		useId++
@@ -209,7 +210,7 @@ func UpdateTailBlockToStore(fd *os.File, content []byte, isCurMcFill bool) bool 
 		}
 
 	}
-	return true
+	return true, curLastPage
 }
 
 /*读取一块记忆体*/

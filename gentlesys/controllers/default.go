@@ -8,6 +8,7 @@ import (
 	"gentlesys/models/audit"
 	"gentlesys/models/mail"
 	"gentlesys/models/navigation"
+	"gentlesys/models/reg"
 	"gentlesys/models/sqlsys"
 	"gentlesys/subject"
 	"io/ioutil"
@@ -219,6 +220,31 @@ func (c *ArticleController) Post() {
 				cachemanager.ManagerCache.AddElementAtFront(s)
 				//将返回地址返回给客户端，让其跳转,配合nginx清空缓存。放在RealTime里面去做
 			*/
+			ctobj := &comment.Comment{}
+			aTopic := &comment.UserTopicData{}
+			aTopic.Aid = proto.Int(r)
+			aTopic.Sid = proto.Int(u.SubId)
+			aTopic.Title = &topic.Title
+			aTopic.Time = proto.String(time.Now().Format("2006-01-02 15:04:05"))
+
+			filePath := fmt.Sprintf("%s\\u_%d", audit.GetCommonStrCfg("userTopicDirPath"), u.UserId)
+			isExist := comment.CheckExists(filePath)
+
+			fd, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0644)
+			if err == nil {
+				defer fd.Close()
+			} else {
+				logs.Error("用户发帖列表保存失败")
+				return //暂时不干啥
+			}
+
+			ctobj.Fd = fd
+			if !isExist {
+				ctobj.InitMcData()
+			}
+			if ok, _ := ctobj.AddOneUserTopic(aTopic); !ok {
+				logs.Error("增加用户发帖列表保存失败")
+			}
 		} else {
 			c.Ctx.WriteString("[1]保存数据库失败")
 			logs.Error("[1]保存数据库失败")
@@ -299,6 +325,14 @@ func (c *BrowseController) Get() {
 
 		commentFilePath := fmt.Sprintf("%s\\s%d_a%d", audit.GetCommonStrCfg("commentDirPath"), sid, aid)
 		curCommentPageNums := comment.GetCommentNums(commentFilePath)
+		//如果请求页超过最大评论页，则返回评论最后一页
+		if pageIndex > (curCommentPageNums - 1) {
+			pageIndex = curCommentPageNums - 1
+		}
+		if pageIndex < 0 {
+			pageIndex = 0
+		}
+
 		records, prev, next := global.CreateNavIndexByPages(pageIndex, curCommentPageNums, urlPrex, "&page")
 		if records != nil {
 			c.Data["RecordIndexs"] = records
@@ -344,9 +378,9 @@ func (c *BrowseController) Get() {
 
 //评论，从客户端提交过来的数据
 type Comment struct {
-	ArtiId int    `form:"aid_" valid:"Required“`                             //文章Id
-	SubId  int    `form:"sid_" valid:"Required“`                             //主题id
-	Value  string `form:"comment_" valid:"Required;MinSize(1);MaxSize(255)"` //主题id
+	ArtiId int    `form:"aid_" valid:"Required“`                              //文章Id
+	SubId  int    `form:"sid_" valid:"Required“`                              //主题id
+	Value  string `form:"comment_" valid:"Required;MinSize(1);MaxSize(1000)"` //评论内容
 }
 
 //评论文章的路由
@@ -372,6 +406,10 @@ func (c *CommentController) Post() {
 	}
 
 	aData := &comment.CommentData{}
+	//去掉kindeditor非法的字符
+	u.Value = reg.DelErrorString(u.Value)
+	//图片加上自动适配
+	u.Value = reg.AddImagAutoClass(u.Value)
 	aData.Content = &u.Value
 	aData.Time = proto.String(time.Now().Format("2006-01-02 15:04:05"))
 	aData.UserName = proto.String(v.(string))
@@ -398,8 +436,9 @@ func (c *CommentController) Post() {
 	if !isExist {
 		ctobj.InitMcData()
 	}
-	if ctobj.AddOneComment(aData) {
-		c.Ctx.WriteString("[0]提交点评成功")
+	if ok, pages := ctobj.AddOneComment(aData); ok {
+		//跳转到点评页面的最后一页，让用户看到自己的点评
+		c.Ctx.WriteString(fmt.Sprintf("[0]/browse?sid=%d&aid=%d&page=%d", u.SubId, u.ArtiId, pages))
 	} else {
 		c.Ctx.WriteString("[1]提交点评失败")
 	}
@@ -654,4 +693,60 @@ func (c *UpdatePasswdController) Post() {
 		}
 
 	}
+}
+
+//用户中心
+type UserInfoController struct {
+	beego.Controller
+}
+
+//获取评论,这个里面的异步读，其他地方可能异步写，要小心
+func (c *UserInfoController) GetTopics(filePath string, pages int) *[]*comment.UserTopicData {
+	isExist := comment.CheckExists(filePath)
+	if !isExist {
+		return nil
+	}
+
+	ctobj := &comment.Comment{}
+
+	fd, _ := os.OpenFile(filePath, os.O_RDONLY, 0644)
+	defer fd.Close()
+
+	ctobj.Fd = fd
+	ret, _ := ctobj.GetOnePageTopics(pages)
+	return ret
+}
+
+func (c *UserInfoController) Get() {
+
+	c.Data["Navigation"] = navigation.GetNav()
+	v := c.GetSession("id")
+	if v == nil {
+		//没有登录，先跳转到登录
+		c.TplName = "auth.tpl"
+		return
+	}
+
+	//0表示回到首页
+	pageIndex, _ := c.GetInt("page", 0)
+
+	topicFilePath := fmt.Sprintf("%s\\u_%d", audit.GetCommonStrCfg("userTopicDirPath"), v.(int))
+	curTopicPageNums := comment.GetCommentNums(topicFilePath)
+	//如果请求页超过最大评论页，则返回评论最后一页
+	if pageIndex > (curTopicPageNums - 1) {
+		pageIndex = curTopicPageNums - 1
+	}
+	if pageIndex < 0 {
+		pageIndex = 0
+	}
+
+	topics := c.GetTopics(topicFilePath, pageIndex)
+	if topics != nil && len(*topics) > 0 {
+		c.Data["TopicsList"] = topics
+		//c.Data["NoMore"] = false
+	} else {
+		c.Data["Info"] = "您没有发布过任何帖子"
+	}
+
+	c.TplName = "userinfo.tpl"
 }
