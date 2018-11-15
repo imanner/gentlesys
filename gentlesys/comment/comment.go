@@ -35,26 +35,26 @@ type Comment struct {
 }
 
 //读当前的评论块，每个块包含OnePageCommentNum条记录
-func (c *Comment) ReadCurCommentBlock() (*CommentStory, bool) {
+func (c *Comment) ReadCurCommentBlock() (*CommentStory, uint32, bool) {
 	index, ok := GetCurUsedId(c.Fd)
 
 	if !ok || index >= MaxMetaMcSize {
-		return nil, false
+		return nil, 0, false
 	}
 	aMeta := &McDataIndexHead{}
 	if !ReadMetaData(c.Fd, int(index), aMeta) {
-		return nil, false
+		return nil, 0, false
 	}
-	m2 := &CommentStory{}
+	m2 := &CommentStory{Commentdata: nil}
 	if aMeta.Length > 0 {
 		buf := make([]byte, aMeta.Length)
 		if !ReadOneBlockMemory(c.Fd, buf, int64(aMeta.Start), int(aMeta.Length)) {
-			return nil, false
+			return nil, 0, false
 		}
 
 		proto.Unmarshal(buf, m2) //反序列化
 	}
-	return m2, true
+	return m2, index, true
 }
 
 func (c *Comment) InitMcData() {
@@ -68,17 +68,29 @@ func (c *Comment) InitMcData() {
 //增加一条评论，返回最后评论页面index
 func (c *Comment) AddOneComment(data *CommentData) (bool, int) {
 
-	srcData, ok := c.ReadCurCommentBlock()
+	srcData, curBlockNums, ok := c.ReadCurCommentBlock()
 	if !ok {
 		return false, 0
 	}
+	//更新该评论的Id
+	var id int32
 
+	//fmt.Printf("%d\n", len(srcData.Commentdata))
+	//读取块的第一个元素时,长度是0，此时不能使用len(srcData.Commentdata)-1
+	if len(srcData.Commentdata) == 0 {
+		id += int32(curBlockNums) * OnePageCommentNum
+	} else {
+		id = *(srcData.Commentdata[len(srcData.Commentdata)-1].Id) + 1
+	}
+
+	data.Id = proto.Int32(id)
 	srcData.Commentdata = append(srcData.Commentdata, data)
 	mdata, err := proto.Marshal(srcData)
 	if err != nil {
 		panic(err)
 	}
 	var isCurMcFull bool = false
+	//如果达到OnePageCommentNum，表示当前满了一页，要开始更新索引到下一页
 	if len(srcData.Commentdata) >= OnePageCommentNum {
 		isCurMcFull = true
 		fmt.Printf("full len %d ", len(srcData.Commentdata))

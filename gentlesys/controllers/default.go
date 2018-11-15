@@ -55,7 +55,10 @@ type MainController struct {
 func (c *MainController) Get() {
 	c.Data["Title"] = "Gentlesys"
 	c.Data["Navigation"] = navigation.GetNav()
-	c.Data["Pagenav"] = navigation.GetMainPageNavData()
+	pn := navigation.GetMainPageNavData()
+	if pn != nil {
+		c.Data["Pagenav"] = pn
+	}
 	c.Data["Subject"] = subject.GetMainPageSubjectData()
 	c.TplName = "main.tpl"
 }
@@ -149,7 +152,6 @@ func (c *ArticleController) Get() {
 	c.Data["Sid"] = sid
 
 	c.TplName = "topic.tpl"
-	//}
 }
 
 //发文章写数据库，然后将新生成的网页地址发给前端；用户提交的分享数据
@@ -171,7 +173,31 @@ func (c *ArticleController) Post() {
 			return
 		}
 		//如果存在文章id，说明是修改，不是新增，走更新流程
-		//暂时不写，在修改是加入
+		//更新流程
+		if u.ArtiId > 0 {
+
+			//避免伪造作者改文章
+			if v.(int) != u.UserId {
+				ret := fmt.Sprintf("[3]只能编辑自己的帖子，不可伪造用户信息，伪造用户id是%d %d", v.(int), u.UserId)
+				logs.Error(ret)
+				c.Ctx.WriteString("[3]只能编辑自己的帖子，不可伪造用户信息")
+				return
+			}
+
+			r := u.UpdateDb()
+			if r {
+				//将返回地址返回给客户端，让其跳转,配合nginx清空缓存
+				//clearcache.ClearPath(fmt.Sprintf("/cure%d", u.ShareId))
+
+				ret := fmt.Sprintf("[0]/browse?sid=%d&aid=%d", u.SubId, u.ArtiId)
+				c.Ctx.WriteString(ret)
+			} else {
+				ret := fmt.Sprintf("[%d]保存数据库失败", r)
+				c.Ctx.WriteString(ret)
+				logs.Error(ret)
+			}
+			return
+		}
 
 		if u.Story == "" {
 			c.Ctx.WriteString("[3]博文数据格式异常，请检查故事文字长度，请修正！")
@@ -188,6 +214,10 @@ func (c *ArticleController) Post() {
 			//没有该用户的审计记录，则插入一条记录
 			userAudit.Insert()
 		} else {
+			if userAudit.Could {
+				c.Ctx.WriteString("[4]你已经被禁言，不能再发帖！")
+				return
+			}
 			//有记录，判断今天是否满足发布条件，否则不允许发布，防止数据库恶意写入。注意错误码[4]一般表示不能重试的那种错误，其他错误码随意。
 			if !userAudit.IsAdmin() && userAudit.DayArticleNums > audit.GetCommonIntCfg("aUserDayMaxArticle") {
 				c.Ctx.WriteString("[4]您今天发布的文章过多，为保证发布质量，请明天再来发布！")
@@ -371,6 +401,12 @@ func (c *BrowseController) Get() {
 		}
 		c.TplName = "browse.tpl"
 
+		//如果是实时更新访问量，则更新
+		if 1 == audit.GetCommonIntCfg("topicReadStatics") {
+			subobj.ReadTimes++
+			sqlsys.UpdateTopicReadStatics(sid, aid, subobj.ReadTimes, subobj.ReplyTimes)
+		}
+
 	} else {
 		c.Abort("401")
 	}
@@ -388,11 +424,11 @@ type CommentController struct {
 	beego.Controller
 }
 
-//提交评论文章
+//提交评论
 func (c *CommentController) Post() {
 	v := c.GetSession("user")
 	if v == nil {
-		c.Ctx.WriteString("[4]你还没有登录，不能点评效果")
+		c.Ctx.WriteString("[4]你还没有登录，不能留言,请先登录...")
 		return
 	}
 	u := &Comment{}
@@ -401,6 +437,28 @@ func (c *CommentController) Post() {
 	} else {
 
 		if !DealParameterCheck(u, "[3]数据格式异常，请修正！", &c.Controller) {
+			return
+		}
+	}
+
+	//用户回复审计
+	var userAudit sqlsys.UserAudit
+
+	id := c.GetSession("id")
+	userAudit.UserId = id.(int)
+
+	if !userAudit.ReadDb() {
+		//没有该用户的审计记录，则插入一条记录
+		userAudit.Insert()
+	} else {
+		//用户被禁用
+		if userAudit.Could {
+			c.Ctx.WriteString("[4]你已经被禁言，不能再发帖！")
+			return
+		}
+		//有记录，判断今天是否满足发布条件，否则不允许发布，防止数据库恶意写入。注意错误码[4]一般表示不能重试的那种错误，其他错误码随意。
+		if !userAudit.IsAdmin() && userAudit.DayCommentTimes > audit.GetCommonIntCfg("aUserDayMaxComment") {
+			c.Ctx.WriteString("[4]您今天发布的评论过多，为保证评论质量，请明天再来发布！")
 			return
 		}
 	}
@@ -439,6 +497,12 @@ func (c *CommentController) Post() {
 	if ok, pages := ctobj.AddOneComment(aData); ok {
 		//跳转到点评页面的最后一页，让用户看到自己的点评
 		c.Ctx.WriteString(fmt.Sprintf("[0]/browse?sid=%d&aid=%d&page=%d", u.SubId, u.ArtiId, pages))
+
+		userAudit.TlCommentTimes++
+		userAudit.DayCommentTimes++
+
+		userAudit.UpdataDayCommentTimes()
+
 	} else {
 		c.Ctx.WriteString("[1]提交点评失败")
 	}
@@ -732,12 +796,19 @@ func (c *UserInfoController) Get() {
 
 	topicFilePath := fmt.Sprintf("%s\\u_%d", audit.GetCommonStrCfg("userTopicDirPath"), v.(int))
 	curTopicPageNums := comment.GetCommentNums(topicFilePath)
-	//如果请求页超过最大评论页，则返回评论最后一页
+	//如果请求页超过最大帖子页，则返回最后一页
 	if pageIndex > (curTopicPageNums - 1) {
 		pageIndex = curTopicPageNums - 1
 	}
 	if pageIndex < 0 {
 		pageIndex = 0
+	}
+
+	records, prev, next := global.CreateNavIndexByPages(pageIndex, curTopicPageNums, "usif", "?page")
+	if records != nil {
+		c.Data["RecordIndexs"] = records
+		c.Data["PrePage"] = prev
+		c.Data["NextPage"] = next
 	}
 
 	topics := c.GetTopics(topicFilePath, pageIndex)
@@ -749,4 +820,343 @@ func (c *UserInfoController) Get() {
 	}
 
 	c.TplName = "userinfo.tpl"
+}
+
+//编辑文章
+type EditController struct {
+	beego.Controller
+}
+
+func (c *EditController) Get() {
+	c.Data["Navigation"] = navigation.GetNav()
+	v := c.GetSession("user")
+	if v == nil {
+		c.TplName = "auth.tpl"
+	} else {
+
+		sid, _ := c.GetInt("sid", -1)
+		aid, _ := c.GetInt("aid", -1)
+
+		if sid == -1 || aid == -1 || !subject.IsSubjectIdExist(sid) {
+			logs.Error("EditController err", sid, aid)
+			c.Abort("401")
+			return
+		}
+
+		ret, u := sqlsys.ReadSubjectFromDb(sid, aid)
+		if 0 == ret {
+			c.Data["TopicType"] = subject.GetTopicTyleList()
+			c.Data["UserId"] = u.UserId
+			c.Data["UserName"] = u.UserName
+			c.Data["Title"] = u.Title
+			c.Data["Sid"] = sid
+			c.Data["ArtiId"] = aid
+
+			if u.Anonymity {
+				c.Data["Check"] = "checked"
+			}
+
+			if u.Path == "" {
+				c.Data["Story"] = "很遗憾，用户没有留下TA的故事"
+			} else {
+				path := fmt.Sprintf("%s/%s", audit.ArticleDir, u.Path)
+				if fileObj, err := os.Open(path); err == nil {
+					defer fileObj.Close()
+					if contents, err := ioutil.ReadAll(fileObj); err == nil {
+						result := strings.Replace(string(contents), "\n", "", 1)
+						c.Data["Story"] = result
+					}
+
+				} else {
+					c.Data["Story"] = "很遗憾，用户没有留下TA的故事"
+				}
+
+			}
+			c.TplName = "edit.tpl"
+
+		}
+	}
+}
+
+//管理中心
+type ManageController struct {
+	beego.Controller
+}
+
+func (c *ManageController) Get() {
+
+	v := c.GetSession("id")
+	if v == nil || !audit.IsAdmin(v.(int)) {
+		//logs.Error("Id 是", v.(uint32))
+		c.Abort("401")
+	}
+
+	u := c.GetSession("user")
+	if u == nil {
+		c.Abort("401")
+	}
+
+	c.Data["Navigation"] = navigation.GetNav()
+	c.Data["ManageUrl"] = audit.GetCommonStrCfg("managerurl")
+	c.Data["SubType"] = subject.GetMainPageSubjectData()
+
+	sid, _ := c.GetInt("sid", -1)
+	if sid == -1 {
+		//不是查询结果，走到欢迎页面
+		c.TplName = "manage.tpl"
+		return
+	}
+
+	pageIndex, _ := c.GetInt("page", 0)
+
+	name := c.GetString("name", "")
+	if name != "" {
+		user := &sqlsys.User{Name: name}
+
+		if !user.GetUserByName() {
+			c.Data["Info"] = fmt.Sprintf("[1]用户%s没有发布过任何帖子", name)
+			c.TplName = "manage.tpl"
+			return
+		}
+		offset := pageIndex * global.OnePageElementCount
+
+		topics, nums := (*sqlsys.Subject)(nil).GetTopicListByFiledWithOffset("user_name", name, sid, offset, global.OnePageElementCount)
+		if topics != nil && len(*topics) > 0 {
+			c.Data["TopicsList"] = topics
+			c.Data["Sid"] = sid
+			c.Data["Info"] = fmt.Sprintf("用户 [%s] 第 %d 页帖子查找成功", name, pageIndex)
+
+			//设置导航条
+			urlPrex := fmt.Sprintf("%s?sid=%d&name=%s", audit.GetCommonStrCfg("managerurl"), sid, name)
+			records, prev, next := global.CreateNavIndexByNums(pageIndex, nums, urlPrex, "&page")
+			if records != nil {
+				c.Data["RecordIndexs"] = records
+				c.Data["PrePage"] = prev
+				c.Data["NextPage"] = next
+			}
+		} else {
+			c.Data["Info"] = fmt.Sprintf("[1]用户%s没有更多的帖子", name)
+		}
+		c.TplName = "manage.tpl"
+		return
+	}
+
+	date := c.GetString("date", "")
+	if date != "" {
+		offset := pageIndex * global.OnePageElementCount
+		topics, nums := (*sqlsys.Subject)(nil).GetTopicListByFiledWithOffset("date", date, sid, offset, global.OnePageElementCount)
+		if topics != nil && len(*topics) > 0 {
+			c.Data["TopicsList"] = topics
+			c.Data["Sid"] = sid
+			c.Data["Info"] = fmt.Sprintf("日期 [%s] 第 %d 页帖子查找成功", date, pageIndex)
+
+			//设置导航条
+			urlPrex := fmt.Sprintf("%s?sid=%d&date=%s", audit.GetCommonStrCfg("managerurl"), sid, date)
+			records, prev, next := global.CreateNavIndexByNums(pageIndex, nums, urlPrex, "&page")
+			if records != nil {
+				c.Data["RecordIndexs"] = records
+				c.Data["PrePage"] = prev
+				c.Data["NextPage"] = next
+			}
+
+		} else {
+			c.Data["Info"] = fmt.Sprintf("[1]日期%s没有更多的帖子", date)
+		}
+		c.TplName = "manage.tpl"
+	}
+
+}
+
+type ManageData struct {
+	Subid int    `form:"subid_" valid:"Required“`
+	Type  int    `form:"type_" valid:"Required“`
+	Key   string `form:"key_" valid:"Required“`
+}
+
+func (c *ManageController) Post() {
+	v := c.GetSession("id")
+	if v == nil || !audit.IsAdmin(v.(int)) {
+		c.Ctx.WriteString("[1]没有权限")
+		return
+	}
+
+	u := ManageData{}
+	if err := c.ParseForm(&u); err != nil {
+		c.Ctx.WriteString("[1]格式不对，请修正！")
+	} else {
+		//beego.Informational(u)
+		if !DealParameterCheck(u, "[1]数据格式异常，请修正！", &c.Controller) {
+			return
+		}
+
+		if !subject.IsSubjectIdExist(u.Subid) {
+			c.Ctx.WriteString("[1]版块格式不对，请修正！")
+			return
+		}
+
+		c.Data["Navigation"] = navigation.GetNav()
+		c.Data["SubType"] = subject.GetMainPageSubjectData()
+
+		if u.Type == 1 {
+			ret := fmt.Sprintf("[0]/%s?sid=%d&name=%s", audit.GetCommonStrCfg("managerurl"), u.Subid, u.Key)
+			c.Ctx.WriteString(ret)
+
+		} else if u.Type == 2 {
+			ret := fmt.Sprintf("[0]/%s?sid=%d&date=%s", audit.GetCommonStrCfg("managerurl"), u.Subid, u.Key)
+			c.Ctx.WriteString(ret)
+		}
+	}
+}
+
+//禁用帖子
+type DisableController struct {
+	beego.Controller
+}
+
+type DisableData struct {
+	Subid int `form:"subid_" valid:"Required“`
+	Aid   int `form:"aid_" valid:"Required“`
+}
+
+func (c *DisableController) Post() {
+
+	v := c.GetSession("id")
+	if v == nil || !audit.IsAdmin(v.(int)) {
+		c.Ctx.WriteString("[1]没有权限")
+		return
+	}
+
+	u := DisableData{}
+	if err := c.ParseForm(&u); err != nil {
+		c.Ctx.WriteString("[1]格式不对，请修正！")
+	} else {
+		if !DealParameterCheck(u, "[1]数据格式异常，请修正！", &c.Controller) {
+			return
+		}
+
+		if !subject.IsSubjectIdExist(u.Subid) {
+			logs.Error("DisableController err", u.Subid)
+			c.Ctx.WriteString("[1]找不到对应的帖子")
+			return
+		}
+
+		aSubject := &sqlsys.Subject{Id: u.Aid}
+
+		ok, status := aSubject.UpdateDisableStatus(u.Subid)
+		if ok {
+			if status {
+				c.Ctx.WriteString("[0]文章禁用成功！")
+				//fmt.Printf("1 %d %d\n", u.Aid, u.Subid)
+			} else {
+				c.Ctx.WriteString("[0]文章取消禁用成功！")
+				//fmt.Printf("2 %d %d\n", u.Aid, u.Subid)
+			}
+			//clearcache.ClearPath(fmt.Sprintf("/cure%d", numId))
+			//fmt.Printf("3 %d %d\n", u.Aid, u.Subid)
+		} else {
+			c.Ctx.WriteString("[1]文章设置禁用状态失败！")
+			//fmt.Printf("4 %d %d\n", u.Aid, u.Subid)
+		}
+
+		//fmt.Printf("%d %d\n", u.Aid, u.Subid)
+	}
+}
+
+//用户中心
+type UserController struct {
+	beego.Controller
+}
+
+type userMsg struct {
+	UserId int `form:"userId_" valid:"Required“`
+	Type   int `form:"type_" valid:"Required“`
+}
+
+func (c *UserController) Post() {
+	v := c.GetSession("id")
+	if v == nil || !audit.IsAdmin(v.(int)) {
+		c.Ctx.WriteString("[1]没有权限")
+		return
+	}
+
+	u := userMsg{}
+	if err := c.ParseForm(&u); err != nil {
+		c.Ctx.WriteString("[1]格式不对，请修正！")
+	} else {
+		if !DealParameterCheck(u, "[1]数据格式异常，请修正！", &c.Controller) {
+			return
+		}
+
+		aUserAu := &sqlsys.UserAudit{UserId: u.UserId}
+
+		if aUserAu.ReadDb() {
+			if u.Type == 1 {
+				//禁言
+				aUserAu.Could = !aUserAu.Could
+				aUserAu.UpdataCould()
+				if aUserAu.Could {
+					c.Ctx.WriteString("[0]禁言用户成功")
+				} else {
+					c.Ctx.WriteString("[0]取消禁言用户成功")
+				}
+
+			} else if u.Type == 2 {
+				//提升等级
+				aUserAu.Level++
+				aUserAu.UpdataLevel()
+				c.Ctx.WriteString("[0]提升用户等级成功")
+			}
+		} else {
+			c.Ctx.WriteString("[1]操作失败")
+		}
+	}
+}
+
+func (c *UserController) Get() {
+	c.Data["Navigation"] = navigation.GetNav()
+	v := c.GetSession("id")
+	if v == nil {
+		c.TplName = "auth.tpl"
+		return
+	}
+
+	name := c.GetString("name", "")
+	if name == "" {
+		c.Abort("401")
+	}
+
+	aUser := &sqlsys.User{Name: name}
+
+	if aUser.GetUserByName() {
+		aUserAu := &sqlsys.UserAudit{UserId: aUser.Id}
+		c.Data["Name"] = aUser.Name
+		c.Data["Birth"] = aUser.Birth
+		c.Data["Lastlog"] = aUser.Lastlog
+
+		if aUserAu.ReadDb() {
+			c.Data["TlArticleNums"] = aUserAu.TlArticleNums
+			c.Data["TlCommentTimes"] = aUserAu.TlCommentTimes
+			c.Data["Level"] = aUserAu.Level
+			if aUserAu.Could {
+				c.Data["Status"] = "被禁言"
+			} else {
+				c.Data["Status"] = "正常"
+			}
+		}
+
+		if audit.IsAdmin(v.(int)) {
+			if aUser.Mail == "" {
+				c.Data["Mail"] = "用户没有留下邮箱"
+			} else {
+				c.Data["Mail"] = aUser.Mail
+			}
+
+			c.Data["IsAdmin"] = true
+			c.Data["UserId"] = aUserAu.UserId
+		} else {
+			c.Data["Mail"] = "仅限管理员可见"
+		}
+	}
+
+	c.TplName = "user.tpl"
 }

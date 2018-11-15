@@ -32,7 +32,15 @@
 <div class="row">
     <div class="col-md-11 col-md-offset-2">
         <p class="key-prob">您的帖子详情(按照发布时间先后排名)</p>
-        <p class="key-prob">注意：由于服务器缓存机制，编辑文章后可能没有立即生效，请不要重复编辑。</p>
+        <ul class="pagination pagination-sm">
+            <li><a class="btn btn-default" role="button">帖子索引</a></li>
+        	<li><a href="{{.PrePage}}">&laquo;</a></li>
+        	 {{range .RecordIndexs}}
+            	<li class="{{.IsActive}}"><a href="{{.Ref}}">{{.Title}}</a></li>
+        	{{end}}
+        	<li><a href="{{.NextPage}}">&raquo;</a></li>
+        </ul>
+        
         <p>{{.Info}}</p>
         {{range .TopicsList}}
         <p>发布时间{{.Time}}&nbsp&nbsp[主题]&nbsp&nbsp<a href="/browse?sid={{.Sid}}&aid={{.Aid}}" target="_blank"> {{.Title}}</a>&nbsp&nbsp&nbsp&nbsp<a class="edit_prob" href="/edit?sid={{.Sid}}&aid={{.Aid}}" target="_blank">(编辑) </a></p>

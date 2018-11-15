@@ -3,6 +3,8 @@ package routers
 import (
 	"gentlesys/controllers"
 
+	"gentlesys/models/audit"
+
 	"github.com/astaxie/beego"
 )
 
@@ -33,6 +35,15 @@ func init() {
 	beego.Router("/repasswd=:id:string", &controllers.RePasswdController{})
 	//提交更新密码Post
 	beego.Router("/updatepd", &controllers.UpdatePasswdController{})
-	//用户中心
+	//用户中心，查看用户的帖子
 	beego.Router("/usif", &controllers.UserInfoController{})
+	//编辑
+	beego.Router("/edit", &controllers.EditController{})
+	//管理中心
+	beego.Router(audit.GetCommonStrCfg("managerurl"), &controllers.ManageController{})
+	//禁止帖子
+	beego.Router("/disable", &controllers.DisableController{})
+	//用户信息
+	beego.Router("/user", &controllers.UserController{})
+
 }

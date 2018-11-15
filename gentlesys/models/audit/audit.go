@@ -40,12 +40,16 @@ func init() {
 
 	//读取一个玩家每日最大发帖量
 	cfgIntMap["aUserDayMaxArticle"] = global.GetIntFromCfg("common::aUserDayMaxArticle", 30)
+	cfgIntMap["aUserDayMaxComment"] = global.GetIntFromCfg("common::aUserDayMaxComment", 30)
+	//默认是实时更新
+	cfgIntMap["topicReadStatics"] = global.GetIntFromCfg("common::topicReadStatics", 1)
 
 	ArticleDir = global.GetStringFromCfg("common::articleDirPath", "")
 	cfgStrMap["articleDirPath"] = ArticleDir
 
 	cfgStrMap["commentDirPath"] = global.GetStringFromCfg("common::commentDirPath", "")
 	cfgStrMap["userTopicDirPath"] = global.GetStringFromCfg("common::userTopicDirPath", "")
+	cfgStrMap["managerurl"] = global.GetStringFromCfg("common::managerurl", "xman")
 
 	//当日最大登录失败次数
 	cfgIntMap["dayLogFailTime"] = global.GetIntFromCfg("common::dayLogFailTime", 5)

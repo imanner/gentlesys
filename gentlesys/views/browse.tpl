@@ -3,6 +3,7 @@
 <head>
    <meta charset="utf-8">
    <meta name="viewport" content="width=device-width,initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+   <meta name="description" content="Gentlesys {{.Title}}"/>
    <title>Gentlesys {{.Title}}</title>
    <link rel="stylesheet" href="http://apps.bdimg.com/libs/bootstrap/3.2.0/css/bootstrap.min.css">
    <script src="http://apps.bdimg.com/libs/jquery/2.1.4/jquery.min.js"></script>
@@ -63,7 +64,7 @@
     	<li><a href="{{.NextPage}}">&raquo;</a></li>
     </ul>
     {{range .Comments}}
-       <p class="comment-css">{{.UserName}}&nbsp;&nbsp;{{.Time}} <a class="btn-sm" href="#write" onclick="test({{.UserName}})">回复</a></p>
+       <p class="comment-css"><span>#{{.Id}}楼 </span><a href="/user?name={{.UserName}}">{{.UserName}}</a>&nbsp;&nbsp;{{.Time}} <a class="btn-sm" href="#write" onclick="test({{.UserName}},{{.Id}})">回复</a></p>
        <p>{{str2html .Content}}</p>
        <h5 class="page-header"></h5>
     {{end}}
@@ -102,8 +103,8 @@
         }
     });
     });
-	function test(name){
-		ke.html("<p>@"+name+"</p><p><br/></p>");
+	function test(name,id){
+		ke.html("<p>@<strong>(#"+id+"楼) "+name+"</strong>&nbsp;&nbsp;</p>");
 	}
 	function comment() {
 		
@@ -142,7 +143,6 @@
 					    btn.attr("disabled", true);
 						document.getElementById("botinfo").innerHTML=("你的评论已经成功发布!请不要重复提交。");
 						window.location.href=msg.substr(3)
-						//alert("评论已经成功发布");
 		          	}
 		          }
 		        });

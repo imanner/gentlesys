@@ -46,9 +46,10 @@ func CreateNav(tplName string, saveName string, tplData interface{}) string {
 }
 
 //专门负责生成页面index的函数
-var OnePageElementCount int //每页展示50条
+var OnePageElementCount int //每页展示条数量
 var CachePagesNums int      //最多显示的导航索引条数
 var FlushNumsLimit int      //首页刷新的值，当首页新增到FlushNumsLimit后，开始刷新
+var AccessTimesLimit int    //首页缓存量超过改值后，开始刷新
 
 type RecordIndex struct {
 	Ref      string
@@ -60,6 +61,7 @@ func init() {
 	OnePageElementCount = GetIntFromCfg("cache::OnePageElementCount", 50)
 	CachePagesNums = GetIntFromCfg("cache::CachePagesNums", 10)
 	FlushNumsLimit = GetIntFromCfg("cache::FlushNumsLimit", 30)
+	AccessTimesLimit = GetIntFromCfg("cache::AccessTimesLimit", 100)
 }
 
 //将总条数转换为页数

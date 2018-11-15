@@ -16,7 +16,18 @@
 	 {{range .NavNodes}}
 	  <li><a href="{{.Href}}">{{.Name}}</a></li> 
 	{{end}}
-	<li><a href="#" id="user"></a></li> 
+	<li><a href="/usif" id="user"></a></li> 
+	<li class="dropdown">
+        <a href="#" class="dropdown-toggle" data-toggle="dropdown">操作
+        <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu">
+            <li><a href="/usif" target="_blank">个人中心</a></li> 
+            <li><a href="/auth" id="auth">登陆</a></li> 
+            <li><a href="/register" id="register">注册</a></li>
+            <li><a href="/quit" id="quit">退出</a></li> 
+        </ul>
+      </li>
     </ul>
 	 </div>
     </div>
@@ -26,18 +37,24 @@
         function getUser() {
         	return document.getElementById("user").innerHTML;
         }
-		function getCookieUser(){
-			var strcookie = document.cookie;
-			var arrcookie = strcookie.split(";");
-			//遍历匹配
-			for ( var i = 0; i < arrcookie.length; i++) {
-				var arr = arrcookie[i].split("=");
-				if (arr[0] == "user" && arr[1] != ""){
-					document.getElementById("user").innerHTML=(arr[1]);
-					return ;
-				}
-			}
+		function getCookie(c_name)
+		{
+		if (document.cookie.length>0)
+		  {
+		  c_start=document.cookie.indexOf(c_name + "=")
+		  if (c_start!=-1)
+		    { 
+		    c_start=c_start + c_name.length+1 
+		    c_end=document.cookie.indexOf(";",c_start)
+		    if (c_end==-1) c_end=document.cookie.length
+		    return unescape(document.cookie.substring(c_start,c_end))
+		    } 
+		  }
+		return "游客"
 		}
-		getCookieUser();
+		(function(){
+			var u = getCookie("user")
+			document.getElementById("user").innerHTML=(u);
+		})();
     </script>
 </nav>

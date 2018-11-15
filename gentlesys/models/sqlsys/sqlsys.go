@@ -7,6 +7,7 @@ import (
 	"gentlesys/models/audit"
 	"gentlesys/models/reg"
 	"gentlesys/subject"
+	"gentlesys/timework"
 	"io/ioutil"
 	"time"
 
@@ -31,6 +32,49 @@ const ERR_NO_USERNAME = 1         //没有该用户
 const ERR_AUTH_FAIL = 2           //认证失败
 const ERR_USERNAME_NOT_UNIQUE = 3 //用户名不是唯一
 const ERR_FAIL_FORBID = 4         //登录失败过多被锁定
+
+//定期每日清理一些锁定字段
+func sqlDailyClearStatus() {
+	o := orm.NewOrm()
+	// 获取 QuerySeter 对象，user 为表名
+	qs := o.QueryTable("user")
+
+	num, _ := qs.Filter("fail__gt", 0).Update(orm.Params{
+		"fail": 0,
+	})
+
+	s := orm.NewOrm()
+	// 获取 QuerySeter 对象，user 为表名
+	qs1 := s.QueryTable("user_audit")
+
+	num1, _ := qs1.Filter("day_comment_times__gt", 0).Update(orm.Params{
+		"day_comment_times": 0,
+	})
+
+	num2, _ := qs1.Filter("day_article_nums__gt", 0).Update(orm.Params{
+		"day_article_nums": 0,
+	})
+
+	logs.Error(fmt.Sprintf("今天共清理%d条记录", num+num1+num2))
+}
+
+func (v *User) GetUserByName() bool {
+	o := orm.NewOrm()
+
+	// 获取 QuerySeter 对象，user 为表名
+	qs := o.QueryTable(v)
+
+	err := qs.Filter("Name", v.Name).One(v)
+	if err == orm.ErrMultiRows {
+		return false
+	}
+	if err == orm.ErrNoRows {
+		return false
+	}
+
+	//v.Id = oldUser.Id
+	return true
+}
 
 func (v *User) UpdatePasswdByName() int {
 	o := orm.NewOrm()
@@ -118,6 +162,8 @@ func (v *User) CheckUserAuth() int {
 	}
 
 	if auser.Passwd == v.Passwd {
+		//刷新一下登录时间
+		o.Update(&auser, "lastlog")
 		return 0
 	}
 	//存在用户，但是密码错误
@@ -173,15 +219,40 @@ type UserAudit struct {
 	DayCommentTimes int  `orm:"null;"`               //今天评论的次数
 	TlArticleNums   int  `orm:"null;"`               //总共发布文章的次数
 	DayArticleNums  int  `orm:"null;"`               //今天发布文章的次数
+	Level           int  `orm:"null;default(1)"`     //级别或职位
 }
 
 func (v *UserAudit) IsAdmin() bool {
 	return audit.IsAdmin(v.UserId)
 }
 
+func (v *UserAudit) UpdataCould() bool {
+	o := orm.NewOrm()
+	if _, err := o.Update(v, "Could"); err == nil {
+		return true
+	}
+	return false
+}
+
+func (v *UserAudit) UpdataLevel() bool {
+	o := orm.NewOrm()
+	if _, err := o.Update(v, "Level"); err == nil {
+		return true
+	}
+	return false
+}
+
 func (v *UserAudit) UpdataDayArticle() bool {
 	o := orm.NewOrm()
 	if _, err := o.Update(v, "TlArticleNums", "DayArticleNums"); err == nil {
+		return true
+	}
+	return false
+}
+
+func (v *UserAudit) UpdataDayCommentTimes() bool {
+	o := orm.NewOrm()
+	if _, err := o.Update(v, "TlCommentTimes", "DayCommentTimes"); err == nil {
 		return true
 	}
 	return false
@@ -225,6 +296,52 @@ type Subject struct {
 	Disable    bool   `orm:"null;default(false)"` //禁用该帖子
 	Anonymity  bool   `orm:"null;default(false)"` //匿名发表
 	Path       string `orm:"size(64)"`            //文章路径，相对路径
+}
+
+//更新帖子的阅读和评论数量
+func UpdateTopicReadStatics(sid int, aid int, readTimes int, replyTimes int) bool {
+	o := orm.NewOrm()
+
+	//先根据subid artid读取记录
+	subInstance := GetInstanceById(sid)
+
+	subobj := subInstance.GetSubject()
+	subobj.Id = aid
+	subobj.ReadTimes = readTimes
+	subobj.ReplyTimes = replyTimes
+
+	if _, err := o.Update(subInstance, "ReadTimes", "ReplyTimes"); err != nil {
+		return false
+	}
+	return true
+}
+
+//更新帖子的禁用状态
+func (v *Subject) UpdateDisableStatus(sid int) (bool, bool) {
+
+	o := orm.NewOrm()
+
+	//先根据subid artid读取记录
+	subInstance := GetInstanceById(sid)
+
+	subobj := subInstance.GetSubject()
+	subobj.Id = v.Id
+
+	//严重注意：这里有一个orm故障，如果写成o.Read(subInstance，"Disable")只去掉一项，经常会读取不到
+	//而且就算读取到后，里面的subobj.Id会变成加一之后的值，非常诡异。怀疑是orm的bug
+	err := o.Read(subInstance)
+	if err == orm.ErrNoRows {
+		return false, false
+	} else if err == orm.ErrMissPK {
+		return false, false
+	}
+
+	subobj.Disable = !subobj.Disable
+
+	if _, err := o.Update(subInstance, "Disable"); err != nil {
+		return false, subobj.Disable
+	}
+	return true, subobj.Disable
 }
 
 //返回主题上指定页的帖子列表，注意是倒序
@@ -274,6 +391,37 @@ func (s *Subject) GetTopicListSortByTime(subId int, nums int) *[]Subject { //单
 	return &ret
 }
 
+//从subx主题表中根据字段名称查找帖子,从偏移offset开始
+func (s *Subject) GetTopicListByFiledWithOffset(filed string, value string, subId int, offset int, limits int) (*[]Subject, int) { //单纯的按照发布时间先后排序
+
+	o := orm.NewOrm()
+
+	// 获取 QuerySeter 对象，user 为表名
+	qs := o.QueryTable(fmt.Sprintf("sub%d", subId))
+	var posts []orm.ParamsList
+
+	key := fmt.Sprintf("%s__startswith", filed)
+
+	cnt, _ := qs.Filter(key, value).Count()
+
+	if offset > int(cnt) {
+		return nil, 0
+	}
+
+	qs.Filter(key, value).OrderBy("-id").Offset(offset).Limit(limits).ValuesList(&posts, "Id", "UserName", "Date", "Title", "ReadTimes", "ReplyTimes", "Disable")
+	var ret []Subject = make([]Subject, len(posts))
+	for i, k := range posts {
+		ret[i].Id = int(k[0].(int64))
+		ret[i].UserName = k[1].(string)
+		ret[i].Date = k[2].(string)
+		ret[i].Title = k[3].(string)
+		ret[i].ReadTimes = int(k[4].(int64))
+		ret[i].ReplyTimes = int(k[5].(int64))
+		ret[i].Disable = k[6].(bool)
+	}
+	return &ret, int(cnt)
+}
+
 /*从主题数据表中根据主题id找到该主题,1表示失败，0表示成功*/
 func ReadSubjectFromDb(subId int, topicId int) (int, *Subject) {
 	o := orm.NewOrm()
@@ -317,6 +465,11 @@ func registerDB() {
 
 func init() {
 	registerDB()
+
+	//注册定时清理任务
+	timework.AddDailyTask("user", func() {
+		sqlDailyClearStatus()
+	})
 }
 
 //发送文章，从客户端提交过来的数据
@@ -329,6 +482,57 @@ type CommitArticle struct {
 	UserName  string `form:"userName_" valid:"MinSize(1);MaxSize(32)" `
 	Title     string `form:"title_" valid:"Required;MinSize(1);MaxSize(128)"`
 	Story     string `form:"story_" valid:"Required;MaxSize(1000000)"`
+}
+
+func (v *CommitArticle) UpdateDb() bool {
+
+	o := orm.NewOrm()
+
+	//先根据subid artid读取记录
+	subInstance := GetInstanceById(v.SubId)
+
+	subobj := subInstance.GetSubject()
+	subobj.Id = v.ArtiId
+	//fmt.Printf("0 -- %d %d %d\n", v.ArtiId, subobj.Id, subInstance.GetSubject().Id)
+	err := o.Read(subInstance)
+
+	if err == orm.ErrNoRows {
+		return false
+	} else if err == orm.ErrMissPK {
+		return false
+	}
+
+	//fmt.Printf("1 -- %d %d %d\n", v.ArtiId, subobj.Id, subInstance.GetSubject().Id)
+
+	//对比二者的作者是不是同一个，否则不能篡改
+	if v.UserId != subobj.UserId {
+		logs.Error(fmt.Sprintf("帖子id %d 与用户id %d匹配不上", v.UserId, subobj.UserId))
+		return false
+	}
+
+	subobj.Type = v.Type
+	//subobj.Title = v.Title //题目不能修改，因为要同步修改缓存
+	subobj.Anonymity = v.Anonymity
+
+	if _, err := o.Update(subInstance, "Type", "Anonymity"); err != nil {
+		return false
+	}
+
+	path := fmt.Sprintf("%s/%s", audit.ArticleDir, subobj.Path)
+
+	//去掉kindeditor非法的字符
+	v.Story = reg.DelErrorString(v.Story)
+
+	//图片加上自动适配
+	v.Story = reg.AddImagAutoClass(v.Story)
+
+	err2 := ioutil.WriteFile(path, []byte(v.Story), 0644)
+	if err2 != nil {
+		logs.Error(err2)
+		return false
+	}
+
+	return true
 }
 
 func (v *CommitArticle) WriteDb() (int, *Subject) {

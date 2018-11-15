@@ -2,7 +2,6 @@ package cachemanager
 
 import (
 	"container/list"
-	//	"fmt"
 	"gentlesys/global"
 	"gentlesys/models/sqlsys"
 	"gentlesys/subject"
@@ -39,14 +38,14 @@ type CacheObj struct {
 	newAddList *list.List        //在头部新加入的元素，先加入该列表
 	list       *list.List        //缓存的结构体
 	element    []*sqlsys.Subject //list的索引，加速定位，空间换时间
-	accessFlag []int             //页面是否访问过的标识
+	accessFlag []int             //页面是否访问过的标识，如果是0，表示没有访问过
 }
 
-//初始化操作时没有加锁，考虑到还在程序初始化期，不会并发
+//初始化操作时没有加锁，考虑到还在程序初始化期，不会并发访问
 func (c *CacheObj) InitCacheTopicListFromDb() {
-	var aSubject sqlsys.Subject
+	//var aSubject sqlsys.Subject
 	nums := global.OnePageElementCount * global.CachePagesNums
-	pTopicList := aSubject.GetTopicListSortByTime(c.SubId, nums)
+	pTopicList := (*sqlsys.Subject)(nil).GetTopicListSortByTime(c.SubId, nums)
 
 	c.list = list.New()
 
@@ -71,13 +70,13 @@ func (c *CacheObj) InitCacheTopicListFromDb() {
 	//fmt.Printf("inital list count %d\n", c.list.Len())
 }
 
-/*
-//每天还是更新一次
-func (c *CacheObj) DayUpdateOneTimes() {
-
-	var aShare mysqlTool.Share
-	nums := global.OnePageElementCount * global.CachePagesNums //只缓存了6个页面的记录
-	shareList := aShare.GetNShareListSortByTime(nums)
+//当首页访问量超过限定值后，必须要重新更新缓存，而且是从数据库读,所以比较耗费时间，AccessTimesLimit次缓存
+//访问才会来一次重新读数据库更新
+func (c *CacheObj) refreshCacheElement() {
+	//刷新必须要满足首页访问的条件，但是我们在调用外面判断
+	var aSubject sqlsys.Subject
+	nums := global.OnePageElementCount * global.CachePagesNums
+	pTopicList := aSubject.GetTopicListSortByTime(c.SubId, nums)
 
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -85,30 +84,37 @@ func (c *CacheObj) DayUpdateOneTimes() {
 	c.list.Init()
 	c.newAddList.Init()
 
-	//将数据保存在列表中
-	for i, k := range shareList {
-		c.list.PushBack(k)
-		c.element[i] = k
-
-		//处理匿名
-		if k.Anonymity {
-			shareList[i].ArName = "晒方网友"
-		}
+	for i := 0; i < global.CachePagesNums; i++ {
+		c.accessFlag[i] = 0
 	}
+
+	if len(*pTopicList) > 0 {
+		for i, _ := range *pTopicList {
+			c.list.PushBack(&(*pTopicList)[i])
+			c.element[i] = &(*pTopicList)[i]
+			//处理匿名
+			if (*pTopicList)[i].Anonymity {
+				(*pTopicList)[i].UserName = "匿名网友"
+			}
+		}
+
+		subject.UpdateCurTopicIndex(c.SubId, (*pTopicList)[0].Id)
+	}
+	//fmt.Printf("实时更新了refreshCacheElement")
 }
-*/
-//在链表头部加入一个数据。v 必须是 *Share 类型。返回值 是否清空过nginx缓存
+
+//在链表头部加入一个数据。v 必须是 * 类型。返回值 是否清空过nginx缓存
 func (c *CacheObj) AddElementAtFront(v interface{}) {
 	c.mutex.Lock()
 	//defer c.mutex.Unlock()
 
 	c.newAddList.PushFront(v)
 
+	//刷新的条件：1 如果新发帖大于FlushNumsLimit 这里也是缓存之间的刷新，并没有真正读数据库
 	if c.newAddList.Len() >= global.FlushNumsLimit {
 		//新加的元素超过global.FlushNumsLimit个了。将二者合并
 		c.list.PushFrontList(c.newAddList)
 		c.newAddList.Init()
-
 		//只缓存global.OnePageElementCount * global.CachePagesNums个元素，超过的删除
 		if c.list.Len() > global.OnePageElementCount*global.CachePagesNums {
 			for i := global.OnePageElementCount * global.CachePagesNums; i < c.list.Len(); i++ {
@@ -152,7 +158,6 @@ func (c *CacheObj) clearMainPageNginxCache() {
 	//fmt.Printf("clear cache ...\n")
 }
 */
-
 //读取一页的元素数据。一共有global.CachePagesNums页
 func (c *CacheObj) ReadElementsWithPageNums(pageNums int) []*sqlsys.Subject {
 
@@ -160,7 +165,13 @@ func (c *CacheObj) ReadElementsWithPageNums(pageNums int) []*sqlsys.Subject {
 		return nil
 	}
 
-	c.accessFlag[pageNums] = 1
+	//表示该页有被访问过
+	c.accessFlag[pageNums]++
+
+	//注意要放在defer c.mutex.Unlock()的上面，因为refreshCacheElement也需要拿锁，否则死锁
+	if c.accessFlag[pageNums] >= global.AccessTimesLimit {
+		defer c.refreshCacheElement()
+	}
 
 	//每页global.OnePageElementCount
 	start := pageNums * global.OnePageElementCount

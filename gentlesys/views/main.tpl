@@ -25,7 +25,7 @@
 
 	<div class="row">
 	<div class="row root-css col-lg-10 col-lg-offset-1">
-		<ul class="nav nav-pills" style="font-weight:bold">
+		<ul class="nav nav-pills" style="font-weight:bold;">
 		{{range .Pagenav}}
             <li><a href="{{.Href}}">{{.Name}}</a></li>
         {{end}}
@@ -36,7 +36,7 @@
 		{{range .Subject}}
 		<div class="media col-lg-6">
 	    <div class="pull-left">
-	      <img src="/static/img/forum_new.gif" class="media-object">
+	      <img src="/static/img/t1.png" class="media-object">
 	    </div>
 	    <div class="media-body">
 	      <h5 class="media-heading"><a href="{{.Href}}">{{.Name}}</a></h5>

@@ -1,6 +1,7 @@
 package main
 
 import (
+	//	"fmt"
 	_ "gentlesys/routers"
 
 	"github.com/astaxie/beego/logs"
