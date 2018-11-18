@@ -19,8 +19,9 @@ func UpdateCurTopicIndex(subId int, value int) {
 	atomic.StoreInt32(&((*subNodes)[subId].CurTopicIndex), int32(value))
 }
 
+//读写最好都是原子操作,这样可以避免并发读取错误
 func GetCurTotalTopicNums(subId int) int {
-	return int((*subNodes)[subId].CurTopicIndex)
+	return int(atomic.LoadInt32(&(*subNodes)[subId].CurTopicIndex))
 }
 
 var subNodes *[]subNode = nil

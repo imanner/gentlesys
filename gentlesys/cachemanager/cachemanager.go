@@ -1,7 +1,7 @@
 package cachemanager
 
 import (
-	"container/list"
+	"fmt"
 	"gentlesys/global"
 	"gentlesys/models/sqlsys"
 	"gentlesys/subject"
@@ -26,19 +26,22 @@ func initCacheSubject() {
 	for _, k := range *subNodes {
 		CacheSubjectObjMaps[k.UniqueId] = new(CacheObj)
 		CacheSubjectObjMaps[k.UniqueId].SubId = k.UniqueId
-		CacheSubjectObjMaps[k.UniqueId].element = make([]*sqlsys.Subject, global.OnePageElementCount*global.CachePagesNums)
+		CacheSubjectObjMaps[k.UniqueId].elementMap = make(map[int]*subjectNode)
 		CacheSubjectObjMaps[k.UniqueId].accessFlag = make([]int, global.OnePageElementCount*global.CachePagesNums)
 		CacheSubjectObjMaps[k.UniqueId].InitCacheTopicListFromDb()
 	}
 }
 
+type subjectNode struct {
+	s     *sqlsys.Subject //实际元素
+	times int             //修改过的次数
+}
 type CacheObj struct {
-	SubId      int               //所属的主题板块
-	mutex      sync.Mutex        //用于保护结构体的锁，保护list
-	newAddList *list.List        //在头部新加入的元素，先加入该列表
-	list       *list.List        //缓存的结构体
-	element    []*sqlsys.Subject //list的索引，加速定位，空间换时间
-	accessFlag []int             //页面是否访问过的标识，如果是0，表示没有访问过
+	SubId      int                  //所属的主题板块
+	mutex      sync.RWMutex         //用于保护结构体的锁，保护list
+	newCount   int                  //新加元素的计数，为了配合nginx的缓存机制
+	elementMap map[int]*subjectNode //不使用[]，使用map，因为需要使用aid来快速定位到subject
+	accessFlag []int                //页面是否访问过的标识，如果是0，表示没有访问过
 }
 
 //初始化操作时没有加锁，考虑到还在程序初始化期，不会并发访问
@@ -47,15 +50,10 @@ func (c *CacheObj) InitCacheTopicListFromDb() {
 	nums := global.OnePageElementCount * global.CachePagesNums
 	pTopicList := (*sqlsys.Subject)(nil).GetTopicListSortByTime(c.SubId, nums)
 
-	c.list = list.New()
-
-	c.newAddList = list.New()
-
 	//将数据保存在列表中topicList 是 *[]orm.Params
 	if len(*pTopicList) > 0 {
-		for i, _ := range *pTopicList {
-			c.list.PushBack(&(*pTopicList)[i])
-			c.element[i] = &(*pTopicList)[i]
+		for i, v := range *pTopicList {
+			c.elementMap[v.Id] = &subjectNode{s: &(*pTopicList)[i]}
 			//处理匿名
 			if (*pTopicList)[i].Anonymity {
 				(*pTopicList)[i].UserName = "匿名网友"
@@ -66,80 +64,83 @@ func (c *CacheObj) InitCacheTopicListFromDb() {
 	}
 
 	//atomic.StoreUint32(&mysqlTool.ShareCureIndex, shareList[0].Id)
-
-	//fmt.Printf("inital list count %d\n", c.list.Len())
 }
 
-//当首页访问量超过限定值后，必须要重新更新缓存，而且是从数据库读,所以比较耗费时间，AccessTimesLimit次缓存
-//访问才会来一次重新读数据库更新
-func (c *CacheObj) refreshCacheElement() {
-	//刷新必须要满足首页访问的条件，但是我们在调用外面判断
-	var aSubject sqlsys.Subject
-	nums := global.OnePageElementCount * global.CachePagesNums
-	pTopicList := aSubject.GetTopicListSortByTime(c.SubId, nums)
+func (c *CacheObj) UpdateCacheSubjectTimesField(v *sqlsys.Subject, field ...string) {
+	//如果缓存中存在，则更新缓存的数据;后面在统一时机一次性更新数据库
+	c.mutex.Lock()
+	if _, ok := c.elementMap[v.Id]; ok {
+		c.elementMap[v.Id].s.ReadTimes = v.ReadTimes
+		c.elementMap[v.Id].s.ReplyTimes = v.ReplyTimes
+		c.elementMap[v.Id].times++
+		c.mutex.Unlock()
+		//fmt.Printf("更新缓存...\n")
+	} else {
+		c.mutex.Unlock()
+		//否则更新数据库
+		v.UpdateSubjectField(c.SubId, field...)
+		//fmt.Printf("更新数据库...\n")
+	}
+}
 
+//把缓存数据持久化到数据库，主要是读与回复的数量,这样避免每次都读写数据库，提高速度
+func (c *CacheObj) saveCacheElement() {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	c.list.Init()
-	c.newAddList.Init()
-
-	for i := 0; i < global.CachePagesNums; i++ {
-		c.accessFlag[i] = 0
-	}
-
-	if len(*pTopicList) > 0 {
-		for i, _ := range *pTopicList {
-			c.list.PushBack(&(*pTopicList)[i])
-			c.element[i] = &(*pTopicList)[i]
-			//处理匿名
-			if (*pTopicList)[i].Anonymity {
-				(*pTopicList)[i].UserName = "匿名网友"
-			}
+	for _, v := range c.elementMap {
+		//只持久化变化次数超过10次以上的
+		if v.times > 10 {
+			v.s.UpdateSubjectField(c.SubId, "ReadTimes", "ReplyTimes")
+			v.times = 0
+			fmt.Printf("开始持久化 %d %d...\n", c.SubId, v.s.Id)
 		}
 
-		subject.UpdateCurTopicIndex(c.SubId, (*pTopicList)[0].Id)
 	}
-	//fmt.Printf("实时更新了refreshCacheElement")
+}
+
+func (c *CacheObj) ReadSubjectFromCache(id int) (int, *sqlsys.Subject) {
+	c.mutex.RLock()
+	if v, ok := c.elementMap[id]; ok {
+		//fmt.Printf("读取缓存...\n")
+		c.mutex.RUnlock()
+		return 0, v.s
+	} else {
+		//读取更新数据库
+		//fmt.Printf("读取数据库...\n")
+		c.mutex.RUnlock()
+		return sqlsys.ReadSubjectFromDb(c.SubId, id)
+	}
+
 }
 
 //在链表头部加入一个数据。v 必须是 * 类型。返回值 是否清空过nginx缓存
-func (c *CacheObj) AddElementAtFront(v interface{}) {
+func (c *CacheObj) AddElement(v interface{}) {
 	c.mutex.Lock()
-	//defer c.mutex.Unlock()
+	defer c.mutex.Unlock()
 
-	c.newAddList.PushFront(v)
+	c.elementMap[v.(*sqlsys.Subject).Id] = &subjectNode{s: v.(*sqlsys.Subject)}
+	c.newCount++
 
-	//刷新的条件：1 如果新发帖大于FlushNumsLimit 这里也是缓存之间的刷新，并没有真正读数据库
-	if c.newAddList.Len() >= global.FlushNumsLimit {
-		//新加的元素超过global.FlushNumsLimit个了。将二者合并
-		c.list.PushFrontList(c.newAddList)
-		c.newAddList.Init()
-		//只缓存global.OnePageElementCount * global.CachePagesNums个元素，超过的删除
-		if c.list.Len() > global.OnePageElementCount*global.CachePagesNums {
-			for i := global.OnePageElementCount * global.CachePagesNums; i < c.list.Len(); i++ {
-				e := c.list.Back()
-				if e != nil {
-					c.list.Remove(e)
+	//刷新的条件：1 如果新发帖大于FlushNumsLimit，则删除elementMap尾部多余缓存的元素，避免map爆炸
+	if c.newCount >= global.FlushNumsLimit {
+		c.newCount = 0
+		//删除最后的FlushNumsLimit个元素
+		if len(c.elementMap) > global.CachePagesNums*global.OnePageElementCount {
+			curTopicIndex := subject.GetCurTotalTopicNums(c.SubId)
+			end := curTopicIndex - global.CachePagesNums*global.OnePageElementCount
+			start := end - global.FlushNumsLimit
+			for i := start; i <= end; i++ {
+				//这里需要将元素持久化数据库。考虑用一个go程去做，避免长时间不返回
+				if c.elementMap[i].times > 0 {
+					c.elementMap[i].s.UpdateSubjectField(c.SubId, "ReadTimes", "ReplyTimes")
 				}
+				delete(c.elementMap, i)
 			}
-		}
-		//更新索引
-		var i int
-		for e := c.list.Front(); e != nil; e = e.Next() {
-			c.element[i] = e.Value.(*sqlsys.Subject)
-			i++
+			fmt.Printf("删除多余元素后，现在元素个数%d\n", len(c.elementMap))
 		}
 
-		c.mutex.Unlock()
-		//刷新此类的全部缓存，即让Nginx缓存失效
-		//c.clearMainPageNginxCache()
-		return
 	}
-	c.mutex.Unlock()
-	//刷新主页。新元素不超过界限，只刷新首页
-	//clearcache.ClearPath("/")
-	return
 }
 
 /*
@@ -165,52 +166,52 @@ func (c *CacheObj) ReadElementsWithPageNums(pageNums int) []*sqlsys.Subject {
 		return nil
 	}
 
-	//表示该页有被访问过
-	c.accessFlag[pageNums]++
-
 	//注意要放在defer c.mutex.Unlock()的上面，因为refreshCacheElement也需要拿锁，否则死锁
-	if c.accessFlag[pageNums] >= global.AccessTimesLimit {
-		defer c.refreshCacheElement()
-	}
 
-	//每页global.OnePageElementCount
-	start := pageNums * global.OnePageElementCount
-	end := (pageNums + 1) * global.OnePageElementCount //不包含end
+	curTopicIndex := subject.GetCurTotalTopicNums(c.SubId)
 
-	//这里加mutexAddList锁，是因为合并中会访问，可能导致链表结构乱
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
+	//先读出来c.newCount，避免中途二次读取c.newCount发生改变。尽量减小锁的粒度
+	c.mutex.RLock()
+	newCount := c.newCount
+	c.mutex.RUnlock()
 
-	if start > c.list.Len() {
+	end := curTopicIndex - newCount - pageNums*global.OnePageElementCount
+	if end < 0 {
 		return nil
 	}
-
-	if end >= c.list.Len() {
-		end = c.list.Len()
+	start := end - global.OnePageElementCount //不包含start
+	if start < 0 {
+		start = 0
 	}
 
 	//如果访问的是首页，则还有加上addList。故首页可能不止50条记录。
 	var ret []*sqlsys.Subject
-
 	j := 0
 
 	if pageNums == 0 {
-		ret = make([]*sqlsys.Subject, end-start+c.newAddList.Len())
-		for e := c.newAddList.Front(); e != nil; e = e.Next() {
-			ret[j] = e.Value.(*sqlsys.Subject) //保存的都是地址
+		ret = make([]*sqlsys.Subject, end-start+newCount)
+		end += newCount
+	} else {
+		//非首页不需要访问头部新加的元素
+		ret = make([]*sqlsys.Subject, end-start)
+	}
+
+	//这里加mutex读锁，是因为合并中会访问，可能导致链表结构乱
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	for index := end; index > start; index-- {
+		if v, ok := c.elementMap[index]; ok {
+			ret[j] = v.s
 			j++
 		}
-		//fmt.Printf("new add %d, end %d start %d len %d\n", j, end, start, c.newAddList.Len())
-	} else {
-		//非首页不需要访问addList
-		ret = make([]*sqlsys.Subject, end-start)
-		//fmt.Printf("2 list %d, end %d start %d\n", j, end, start)
-
 	}
 
-	for index := start; index < end; index++ {
-		ret[j] = c.element[index] //保存的都是地址
-		j++
+	//表示该页有被访问过,访问的次数超过设定值后，持久化缓存到数据库
+	c.accessFlag[pageNums]++
+	if c.accessFlag[pageNums] >= global.AccessTimesLimit {
+		go c.saveCacheElement()
 	}
+
 	return ret
 }

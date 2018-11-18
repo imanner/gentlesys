@@ -10,7 +10,9 @@ import (
 	"gentlesys/models/navigation"
 	"gentlesys/models/reg"
 	"gentlesys/models/sqlsys"
+	"gentlesys/store"
 	"gentlesys/subject"
+	"gentlesys/userinfo"
 	"io/ioutil"
 	"os"
 	"strconv"
@@ -105,7 +107,7 @@ func (c *SubjectController) Get() {
 	if pageIndex >= 0 && pageIndex < global.CachePagesNums {
 		//如果是首页，首页特殊处理，因为首页可能实时发帖更新
 		topics := cachemanager.CacheSubjectObjMaps[numId].ReadElementsWithPageNums(pageIndex)
-		if len(topics) == 0 {
+		if topics == nil || len(topics) == 0 {
 			c.Data["NoMore"] = true
 		} else {
 			c.Data["Topic"] = topics
@@ -113,7 +115,7 @@ func (c *SubjectController) Get() {
 	} else {
 		//其他页呢，可以走ngnix的缓存页面，可以直接从数据库查询
 		topics := (*sqlsys.Subject)(nil).GetTopicListPageNum(numId, pageIndex)
-		if len(*topics) == 0 {
+		if topics == nil || len(*topics) == 0 {
 			c.Data["NoMore"] = true
 		} else {
 			c.Data["Topic"] = topics
@@ -239,26 +241,19 @@ func (c *ArticleController) Post() {
 			//将返回地址返回给客户端，让其跳转
 			ret := fmt.Sprintf("[0]/browse?sid=%d&aid=%d", u.SubId, r)
 			c.Ctx.WriteString(ret)
-			cachemanager.CacheSubjectObjMaps[u.SubId].AddElementAtFront(topic)
-			//把主页main也刷新下，让用户能够实时看到自己的帖子
-			//mysqlTool.UpdataMainPageDataRealTime(r, s)
-			//处理匿名
-			/*
-				if s.Anonymity {
-					s.ArName = "晒方网友"
-				}
-				cachemanager.ManagerCache.AddElementAtFront(s)
-				//将返回地址返回给客户端，让其跳转,配合nginx清空缓存。放在RealTime里面去做
-			*/
-			ctobj := &comment.Comment{}
-			aTopic := &comment.UserTopicData{}
+
+			//返回给用户后，再去做一些比较费时的粗活，避免用户得不到响应过久
+			cachemanager.CacheSubjectObjMaps[u.SubId].AddElement(topic)
+
+			ctobj := &userinfo.Topic{}
+			aTopic := &store.UserTopicData{}
 			aTopic.Aid = proto.Int(r)
 			aTopic.Sid = proto.Int(u.SubId)
 			aTopic.Title = &topic.Title
 			aTopic.Time = proto.String(time.Now().Format("2006-01-02 15:04:05"))
 
-			filePath := fmt.Sprintf("%s\\u_%d", audit.GetCommonStrCfg("userTopicDirPath"), u.UserId)
-			isExist := comment.CheckExists(filePath)
+			filePath := fmt.Sprintf("%s\\u_%d", audit.GetCommonStrCfg("userInfoDirPath"), u.UserId)
+			isExist := store.CheckExists(filePath)
 
 			fd, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0644)
 			if err == nil {
@@ -270,7 +265,7 @@ func (c *ArticleController) Post() {
 
 			ctobj.Fd = fd
 			if !isExist {
-				ctobj.InitMcData()
+				store.InitMcData(fd)
 			}
 			if ok, _ := ctobj.AddOneUserTopic(aTopic); !ok {
 				logs.Error("增加用户发帖列表保存失败")
@@ -289,8 +284,8 @@ type BrowseController struct {
 }
 
 //获取评论,这个里面的异步读，其他地方可能异步写，要小心
-func (c *BrowseController) GetComment(filePath string, pages int, sid int, aid int) *[]*comment.CommentData {
-	isExist := comment.CheckExists(filePath)
+func (c *BrowseController) GetComment(filePath string, pages int, sid int, aid int) *[]*store.CommentData {
+	isExist := store.CheckExists(filePath)
 	if !isExist {
 		return nil
 	}
@@ -321,7 +316,7 @@ func (c *BrowseController) Get() {
 		return
 	}
 
-	ret, subobj := sqlsys.ReadSubjectFromDb(sid, aid)
+	ret, subobj := cachemanager.CacheSubjectObjMaps[sid].ReadSubjectFromCache(aid)
 	if 0 == ret {
 		if subobj.Disable {
 			c.Ctx.WriteString("[3]文章不符合审核规定，已经被禁用！")
@@ -370,7 +365,7 @@ func (c *BrowseController) Get() {
 			c.Data["NextPage"] = next
 		}
 		//评论超过MaxMetaMcSize页，不能再留言。目前是20*512条
-		if curCommentPageNums >= comment.MaxMetaMcSize {
+		if curCommentPageNums >= store.MaxMetaMcSize {
 			c.Data["CanReplay"] = false
 		} else {
 			c.Data["CanReplay"] = true
@@ -401,11 +396,9 @@ func (c *BrowseController) Get() {
 		}
 		c.TplName = "browse.tpl"
 
-		//如果是实时更新访问量，则更新
-		if 1 == audit.GetCommonIntCfg("topicReadStatics") {
-			subobj.ReadTimes++
-			sqlsys.UpdateTopicReadStatics(sid, aid, subobj.ReadTimes, subobj.ReplyTimes)
-		}
+		//更新访问量
+		subobj.ReadTimes++
+		cachemanager.CacheSubjectObjMaps[sid].UpdateCacheSubjectTimesField(subobj, "ReadTimes")
 
 	} else {
 		c.Abort("401")
@@ -424,6 +417,29 @@ type CommentController struct {
 	beego.Controller
 }
 
+func (c *CommentController) UpdateUserCommentRecord(content *store.CommentData, userId int, sid int, aid int) {
+	aRecord := &store.UserCommentData{SubId: proto.Int(sid), Aid: proto.Int(aid)}
+	aRecord.Commentdata = content
+	filePath := fmt.Sprintf("%s\\c_%d", audit.GetCommonStrCfg("userInfoDirPath"), userId)
+	isExist := store.CheckExists(filePath)
+	fd, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0644)
+	if err == nil {
+		defer fd.Close()
+	} else {
+		return
+	}
+
+	cobj := &userinfo.Comment{Fd: fd}
+	if !isExist {
+		store.InitMcData(fd)
+	}
+	if ok, _ := cobj.AddOneUserComment(aRecord); ok {
+	} else {
+		logs.Error("UpdateUserCommentRecord err")
+	}
+
+}
+
 //提交评论
 func (c *CommentController) Post() {
 	v := c.GetSession("user")
@@ -435,7 +451,6 @@ func (c *CommentController) Post() {
 	if err := c.ParseForm(u); err != nil {
 		c.Ctx.WriteString("[2]格式不对，请修正！")
 	} else {
-
 		if !DealParameterCheck(u, "[3]数据格式异常，请修正！", &c.Controller) {
 			return
 		}
@@ -453,7 +468,7 @@ func (c *CommentController) Post() {
 	} else {
 		//用户被禁用
 		if userAudit.Could {
-			c.Ctx.WriteString("[4]你已经被禁言，不能再发帖！")
+			c.Ctx.WriteString("[4]你已经被禁言，不能再回帖！")
 			return
 		}
 		//有记录，判断今天是否满足发布条件，否则不允许发布，防止数据库恶意写入。注意错误码[4]一般表示不能重试的那种错误，其他错误码随意。
@@ -463,7 +478,7 @@ func (c *CommentController) Post() {
 		}
 	}
 
-	aData := &comment.CommentData{}
+	aData := &store.CommentData{}
 	//去掉kindeditor非法的字符
 	u.Value = reg.DelErrorString(u.Value)
 	//图片加上自动适配
@@ -471,6 +486,7 @@ func (c *CommentController) Post() {
 	aData.Content = &u.Value
 	aData.Time = proto.String(time.Now().Format("2006-01-02 15:04:05"))
 	aData.UserName = proto.String(v.(string))
+	aData.IsDel = proto.Bool(false)
 	filePath := fmt.Sprintf("%s\\s%d_a%d", audit.GetCommonStrCfg("commentDirPath"), u.SubId, u.ArtiId)
 
 	key := fmt.Sprintf("%s_%s", u.SubId, u.ArtiId)
@@ -480,7 +496,7 @@ func (c *CommentController) Post() {
 	ctobj.Mutex.Lock()
 	defer ctobj.Mutex.Unlock()
 
-	isExist := comment.CheckExists(filePath)
+	isExist := store.CheckExists(filePath)
 
 	fd, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0644)
 	if err == nil {
@@ -492,7 +508,7 @@ func (c *CommentController) Post() {
 
 	ctobj.Fd = fd
 	if !isExist {
-		ctobj.InitMcData()
+		store.InitMcData(fd)
 	}
 	if ok, pages := ctobj.AddOneComment(aData); ok {
 		//跳转到点评页面的最后一页，让用户看到自己的点评
@@ -503,6 +519,14 @@ func (c *CommentController) Post() {
 
 		userAudit.UpdataDayCommentTimes()
 
+		//更新数据库中的计数，如果更新数据库则这个相对比较费资源
+		ret, subobj := cachemanager.CacheSubjectObjMaps[u.SubId].ReadSubjectFromCache(u.ArtiId)
+		if 0 == ret {
+			subobj.ReplyTimes++
+			cachemanager.CacheSubjectObjMaps[u.SubId].UpdateCacheSubjectTimesField(subobj, "ReplyTimes")
+		}
+		//更新用户的评论情况
+		go c.UpdateUserCommentRecord(aData, id.(int), u.SubId, u.ArtiId)
 	} else {
 		c.Ctx.WriteString("[1]提交点评失败")
 	}
@@ -765,13 +789,13 @@ type UserInfoController struct {
 }
 
 //获取评论,这个里面的异步读，其他地方可能异步写，要小心
-func (c *UserInfoController) GetTopics(filePath string, pages int) *[]*comment.UserTopicData {
-	isExist := comment.CheckExists(filePath)
+func (c *UserInfoController) GetTopics(filePath string, pages int) *[]*store.UserTopicData {
+	isExist := store.CheckExists(filePath)
 	if !isExist {
 		return nil
 	}
 
-	ctobj := &comment.Comment{}
+	ctobj := &userinfo.Topic{}
 
 	fd, _ := os.OpenFile(filePath, os.O_RDONLY, 0644)
 	defer fd.Close()
@@ -794,7 +818,7 @@ func (c *UserInfoController) Get() {
 	//0表示回到首页
 	pageIndex, _ := c.GetInt("page", 0)
 
-	topicFilePath := fmt.Sprintf("%s\\u_%d", audit.GetCommonStrCfg("userTopicDirPath"), v.(int))
+	topicFilePath := fmt.Sprintf("%s\\u_%d", audit.GetCommonStrCfg("userInfoDirPath"), v.(int))
 	curTopicPageNums := comment.GetCommentNums(topicFilePath)
 	//如果请求页超过最大帖子页，则返回最后一页
 	if pageIndex > (curTopicPageNums - 1) {
@@ -816,7 +840,7 @@ func (c *UserInfoController) Get() {
 		c.Data["TopicsList"] = topics
 		//c.Data["NoMore"] = false
 	} else {
-		c.Data["Info"] = "您没有发布过任何帖子"
+		c.Data["Info"] = "您没有更多帖子"
 	}
 
 	c.TplName = "userinfo.tpl"
@@ -883,6 +907,125 @@ type ManageController struct {
 	beego.Controller
 }
 
+//获取用户的评论记录
+func (c *ManageController) GetUserComents(filePath string, pages int) *[]*store.UserCommentData {
+	isExist := store.CheckExists(filePath)
+	if !isExist {
+		return nil
+	}
+
+	ctobj := &userinfo.Comment{}
+
+	fd, _ := os.OpenFile(filePath, os.O_RDONLY, 0644)
+	defer fd.Close()
+
+	ctobj.Fd = fd
+	ret, _ := ctobj.GetOnePageComment(pages)
+	//for _, k := range *ret {
+	//	fmt.Printf("%v\n", *k.Commentdata)
+	//}
+	return ret
+}
+
+func (c *ManageController) GetTopicsByName(name string, sid int, pageIndex int) {
+	user := &sqlsys.User{Name: name}
+
+	if !user.GetUserByName() {
+		c.Data["Info"] = fmt.Sprintf("[1]用户%s没有发布过任何帖子", name)
+		c.TplName = "manage.tpl"
+		return
+	}
+	offset := pageIndex * global.OnePageElementCount
+
+	topics, nums := (*sqlsys.Subject)(nil).GetTopicListByFiledWithOffset("user_name", name, sid, offset, global.OnePageElementCount)
+	if topics != nil && len(*topics) > 0 {
+		c.Data["TopicsList"] = topics
+		c.Data["Sid"] = sid
+		c.Data["Info"] = fmt.Sprintf("用户 [%s] 第 %d 页帖子查找成功", name, pageIndex)
+		c.Data["IsTopic"] = true
+
+		//设置导航条
+		urlPrex := fmt.Sprintf("%s?sid=%d&name=%s", audit.GetCommonStrCfg("managerurl"), sid, name)
+		records, prev, next := global.CreateNavIndexByNums(pageIndex, nums, urlPrex, "&page")
+		if records != nil {
+			c.Data["RecordIndexs"] = records
+			c.Data["PrePage"] = prev
+			c.Data["NextPage"] = next
+		}
+	} else {
+		c.Data["Info"] = fmt.Sprintf("[1]用户%s没有更多的帖子", name)
+	}
+	c.TplName = "manage.tpl"
+}
+
+func (c *ManageController) GetTopicsByDate(date string, sid int, pageIndex int) {
+	offset := pageIndex * global.OnePageElementCount
+	topics, nums := (*sqlsys.Subject)(nil).GetTopicListByFiledWithOffset("date", date, sid, offset, global.OnePageElementCount)
+	if topics != nil && len(*topics) > 0 {
+		c.Data["TopicsList"] = topics
+		c.Data["Sid"] = sid
+		c.Data["Info"] = fmt.Sprintf("日期 [%s] 第 %d 页帖子查找成功", date, pageIndex)
+		c.Data["IsTopic"] = true
+
+		//设置导航条
+		urlPrex := fmt.Sprintf("%s?sid=%d&date=%s", audit.GetCommonStrCfg("managerurl"), sid, date)
+		records, prev, next := global.CreateNavIndexByNums(pageIndex, nums, urlPrex, "&page")
+		if records != nil {
+			c.Data["RecordIndexs"] = records
+			c.Data["PrePage"] = prev
+			c.Data["NextPage"] = next
+		}
+
+	} else {
+		c.Data["Info"] = fmt.Sprintf("[1]日期%s没有更多的帖子", date)
+	}
+	c.TplName = "manage.tpl"
+}
+
+func (c *ManageController) GetCommentsByName(name string, pageIndex int) {
+	user := &sqlsys.User{Name: name}
+
+	if !user.GetUserByName() {
+		c.Data["Info"] = fmt.Sprintf("[1]用户%s没有发布过任何回复", name)
+		c.TplName = "manage.tpl"
+		return
+	}
+
+	commentFilePath := fmt.Sprintf("%s\\c_%d", audit.GetCommonStrCfg("userInfoDirPath"), user.Id)
+	curCommentPageNums := store.GetObjPageNums(commentFilePath)
+	//如果请求页超过最大帖子页，则返回最后一页
+	if pageIndex > (curCommentPageNums - 1) {
+		pageIndex = curCommentPageNums - 1
+	}
+	if pageIndex < 0 {
+		pageIndex = 0
+	}
+
+	//设置导航条
+	urlPrex := fmt.Sprintf("%s?cname=%s", audit.GetCommonStrCfg("managerurl"), name)
+	records, prev, next := global.CreateNavIndexByPages(pageIndex, curCommentPageNums, urlPrex, "&page")
+	if records != nil {
+		c.Data["RecordIndexs"] = records
+		c.Data["PrePage"] = prev
+		c.Data["NextPage"] = next
+	} else {
+		c.Data["Info"] = fmt.Sprintf("[1]用户%s没有更多的回复", name)
+	}
+
+	coments := c.GetUserComents(commentFilePath, pageIndex)
+	if coments != nil && len(*coments) > 0 {
+		c.Data["IsTopic"] = false
+		c.Data["CommentsList"] = coments
+		c.Data["Uid"] = user.Id
+		c.Data["PageNum"] = pageIndex
+
+	} else {
+		c.Data["Info"] = fmt.Sprintf("[1]用户%s没有更多的回复", name)
+	}
+
+	c.TplName = "manage.tpl"
+}
+
 func (c *ManageController) Get() {
 
 	v := c.GetSession("id")
@@ -900,6 +1043,16 @@ func (c *ManageController) Get() {
 	c.Data["ManageUrl"] = audit.GetCommonStrCfg("managerurl")
 	c.Data["SubType"] = subject.GetMainPageSubjectData()
 
+	pageIndex, _ := c.GetInt("page", 0)
+
+	var name string
+
+	name = c.GetString("cname", "")
+	if name != "" {
+		c.GetCommentsByName(name, pageIndex)
+		return
+	}
+
 	sid, _ := c.GetInt("sid", -1)
 	if sid == -1 {
 		//不是查询结果，走到欢迎页面
@@ -907,62 +1060,16 @@ func (c *ManageController) Get() {
 		return
 	}
 
-	pageIndex, _ := c.GetInt("page", 0)
-
-	name := c.GetString("name", "")
+	name = c.GetString("name", "")
 	if name != "" {
-		user := &sqlsys.User{Name: name}
-
-		if !user.GetUserByName() {
-			c.Data["Info"] = fmt.Sprintf("[1]用户%s没有发布过任何帖子", name)
-			c.TplName = "manage.tpl"
-			return
-		}
-		offset := pageIndex * global.OnePageElementCount
-
-		topics, nums := (*sqlsys.Subject)(nil).GetTopicListByFiledWithOffset("user_name", name, sid, offset, global.OnePageElementCount)
-		if topics != nil && len(*topics) > 0 {
-			c.Data["TopicsList"] = topics
-			c.Data["Sid"] = sid
-			c.Data["Info"] = fmt.Sprintf("用户 [%s] 第 %d 页帖子查找成功", name, pageIndex)
-
-			//设置导航条
-			urlPrex := fmt.Sprintf("%s?sid=%d&name=%s", audit.GetCommonStrCfg("managerurl"), sid, name)
-			records, prev, next := global.CreateNavIndexByNums(pageIndex, nums, urlPrex, "&page")
-			if records != nil {
-				c.Data["RecordIndexs"] = records
-				c.Data["PrePage"] = prev
-				c.Data["NextPage"] = next
-			}
-		} else {
-			c.Data["Info"] = fmt.Sprintf("[1]用户%s没有更多的帖子", name)
-		}
-		c.TplName = "manage.tpl"
+		c.GetTopicsByName(name, sid, pageIndex)
 		return
 	}
 
 	date := c.GetString("date", "")
 	if date != "" {
-		offset := pageIndex * global.OnePageElementCount
-		topics, nums := (*sqlsys.Subject)(nil).GetTopicListByFiledWithOffset("date", date, sid, offset, global.OnePageElementCount)
-		if topics != nil && len(*topics) > 0 {
-			c.Data["TopicsList"] = topics
-			c.Data["Sid"] = sid
-			c.Data["Info"] = fmt.Sprintf("日期 [%s] 第 %d 页帖子查找成功", date, pageIndex)
-
-			//设置导航条
-			urlPrex := fmt.Sprintf("%s?sid=%d&date=%s", audit.GetCommonStrCfg("managerurl"), sid, date)
-			records, prev, next := global.CreateNavIndexByNums(pageIndex, nums, urlPrex, "&page")
-			if records != nil {
-				c.Data["RecordIndexs"] = records
-				c.Data["PrePage"] = prev
-				c.Data["NextPage"] = next
-			}
-
-		} else {
-			c.Data["Info"] = fmt.Sprintf("[1]日期%s没有更多的帖子", date)
-		}
-		c.TplName = "manage.tpl"
+		c.GetTopicsByDate(date, sid, pageIndex)
+		return
 	}
 
 }
@@ -1000,9 +1107,11 @@ func (c *ManageController) Post() {
 		if u.Type == 1 {
 			ret := fmt.Sprintf("[0]/%s?sid=%d&name=%s", audit.GetCommonStrCfg("managerurl"), u.Subid, u.Key)
 			c.Ctx.WriteString(ret)
-
 		} else if u.Type == 2 {
 			ret := fmt.Sprintf("[0]/%s?sid=%d&date=%s", audit.GetCommonStrCfg("managerurl"), u.Subid, u.Key)
+			c.Ctx.WriteString(ret)
+		} else if u.Type == 3 {
+			ret := fmt.Sprintf("[0]/%s?cname=%s", audit.GetCommonStrCfg("managerurl"), u.Key)
 			c.Ctx.WriteString(ret)
 		}
 	}
@@ -1159,4 +1268,92 @@ func (c *UserController) Get() {
 	}
 
 	c.TplName = "user.tpl"
+}
+
+type RemoveController struct {
+	beego.Controller
+}
+
+type commentMsg struct {
+	SubId          int `form:"subId_" valid:"Required“`
+	ArtiId         int `form:"artiId_" valid:"Required“`
+	UserId         int `form:"userId_" valid:"Required“`
+	CommentId      int `form:"cid_" valid:"Required“`
+	CommentPageNum int `form:"pages_" valid:"Required“`
+}
+
+func (c *RemoveController) Post() {
+	v := c.GetSession("id")
+	if v == nil || !audit.IsAdmin(v.(int)) {
+		c.Ctx.WriteString("[1]没有权限")
+		return
+	}
+
+	u := commentMsg{}
+	if err := c.ParseForm(&u); err != nil {
+		c.Ctx.WriteString("[1]格式不对，请修正！")
+	} else {
+		if !DealParameterCheck(u, "[1]数据格式异常，请修正！", &c.Controller) {
+			return
+		}
+
+		//修改帖子里面的评论
+		//定位到多少页
+		pagesNum := u.CommentId / store.OnePageCommentNum
+
+		filePath := fmt.Sprintf("%s\\s%d_a%d", audit.GetCommonStrCfg("commentDirPath"), u.SubId, u.ArtiId)
+
+		key := fmt.Sprintf("%s_%s", u.SubId, u.ArtiId)
+		ccobj := comment.GetCommentHandlerByPath(key)
+		defer comment.DelCommentHandlerByPath(key)
+		//上下两个defer的位置顺序值得思考，写加写锁
+		ccobj.Mutex.Lock()
+		defer ccobj.Mutex.Unlock()
+
+		//fmt.Printf("文件路径%s\n", filePath)
+
+		topicFd, err := os.OpenFile(filePath, os.O_RDWR, 0644)
+		if err == nil {
+			ccobj.Fd = topicFd
+			defer topicFd.Close()
+		} else {
+			c.Ctx.WriteString(fmt.Sprintf("[1]sid=%d&aid=%d帖子可能并不存在，请检查", u.SubId, u.ArtiId))
+			return
+		}
+
+		//fmt.Printf("第%d页 第%d楼\n", pagesNum, u.CommentId)
+
+		if ok, code := ccobj.DisableOneComment(pagesNum, u.CommentId); ok {
+			//接着修改用户中心里面的评论管理项目
+			commentFilePath := fmt.Sprintf("%s\\c_%d", audit.GetCommonStrCfg("userInfoDirPath"), u.UserId)
+			curCommentPageNums := store.GetObjPageNums(commentFilePath)
+			if curCommentPageNums == 0 || u.CommentPageNum > (curCommentPageNums-1) {
+				c.Ctx.WriteString(fmt.Sprintf("[2]失败：该文章中没有第%d页评论！", u.CommentPageNum))
+				return
+			}
+			ctobj := &userinfo.Comment{}
+
+			fd, err := os.OpenFile(commentFilePath, os.O_RDWR, 0644)
+			if err == nil {
+				ctobj.Fd = fd
+				defer fd.Close()
+			} else {
+				c.Ctx.WriteString(fmt.Sprintf("[3]sid=%d&aid=%d帖子第%d楼回复禁用成功, 但用户中心没有同步禁用状态", u.SubId, u.ArtiId, u.CommentId))
+				return
+			}
+
+			if ret, _ := ctobj.DisableOneComment(u.CommentPageNum, u.CommentId); ret {
+				c.Ctx.WriteString(fmt.Sprintf("[0]sid=%d&aid=%d帖子第%d楼回复禁用成功", u.SubId, u.ArtiId, u.CommentId))
+			} else {
+				c.Ctx.WriteString(fmt.Sprintf("[4]sid=%d&aid=%d帖子第%d楼回复禁用成功, 但用户中心没有同步禁用状态", u.SubId, u.ArtiId, u.CommentId))
+			}
+		} else {
+			if code == 1 {
+				c.Ctx.WriteString(fmt.Sprintf("[5]失败：帖子sid=%d&aid=%d帖子第%d楼回复已经是禁用，不用再操作", u.SubId, u.ArtiId, u.CommentId))
+			} else {
+				c.Ctx.WriteString(fmt.Sprintf("[6]失败：sid=%d&aid=%d帖子第%d楼回复禁用失败", u.SubId, u.ArtiId, u.CommentId))
+			}
+
+		}
+	}
 }

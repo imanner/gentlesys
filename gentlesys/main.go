@@ -1,15 +1,28 @@
 package main
 
 import (
-	//	"fmt"
 	_ "gentlesys/routers"
+
+	"gentlesys/store"
 
 	"github.com/astaxie/beego/logs"
 
 	"github.com/astaxie/beego"
 )
 
+func IsDeled(obj *store.CommentData) bool {
+	if obj.IsDel != nil {
+		return *(obj.IsDel)
+	} else {
+		return false
+	}
+
+}
+
 func main() {
+
+	//增加模板函数
+	beego.AddFuncMap("isdeled", IsDeled)
 
 	//设置日志
 	logs.SetLogger(logs.AdapterFile, `{"filename":"sys.log","level":4}`)

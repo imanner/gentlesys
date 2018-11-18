@@ -84,7 +84,7 @@ func CreateNavIndexByPages(curPage int, totalPages int, urlPrex string, urlArgFi
 	integerPart := curPage / CachePagesNums
 	remainderPart := curPage % CachePagesNums
 
-	//如果总数小于10页，不需要任何前后..
+	//如果总数小于CachePagesNums页，不需要任何前后..
 	if totalPages < CachePagesNums {
 		for i, _ := range recordIndexList[:totalPages] {
 			recordIndexList[i].Ref = fmt.Sprintf("/%s%s=%d", urlPrex, urlArgFiele, i)
@@ -177,7 +177,7 @@ func CreateNavIndexByPages(curPage int, totalPages int, urlPrex string, urlArgFi
 			if curPage >= (totalPages - 1) {
 				nextPage = "#没有了"
 			} else {
-				nextPage = fmt.Sprintf("/page=%d", curPage+1)
+				nextPage = fmt.Sprintf("/%s%s=%d", urlPrex, urlArgFiele, curPage+1)
 			}
 
 			return recordIndexList[:nums], fmt.Sprintf("/%s%s=%d", urlPrex, urlArgFiele, curPage-1), nextPage

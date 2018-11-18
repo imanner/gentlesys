@@ -316,6 +316,22 @@ func UpdateTopicReadStatics(sid int, aid int, readTimes int, replyTimes int) boo
 	return true
 }
 
+//更新帖子的字段状态,这个就直接更新了，写入到数据库去
+func (v *Subject) UpdateSubjectField(sid int, field ...string) bool {
+	o := orm.NewOrm()
+
+	//先根据subid artid读取记录
+	subInstance := GetInstanceById(sid)
+
+	subobj := subInstance.GetSubject()
+	*subobj = *v
+
+	if _, err := o.Update(subInstance, field...); err != nil {
+		return false
+	}
+	return true
+}
+
 //更新帖子的禁用状态
 func (v *Subject) UpdateDisableStatus(sid int) (bool, bool) {
 
@@ -363,7 +379,7 @@ func (v *Subject) GetTopicListPageNum(subId int, pages int) *[]orm.Params {
 	// 获取 QuerySeter 对象，user 为表名
 	qs := o.QueryTable(fmt.Sprintf("sub%d", subId))
 	var posts []orm.Params
-	qs.Filter("id__gte", start).Filter("id__lte", end).OrderBy("-id").Values(&posts, "Id", "UserName", "Data", "Type", "Title", "ReadTimes", "ReplyTimes", "Anonymity")
+	qs.Filter("id__gte", start).Filter("id__lte", end).OrderBy("-id").Values(&posts, "Id", "UserName", "Date", "Type", "Title", "ReadTimes", "ReplyTimes", "Anonymity")
 
 	return &posts
 }
@@ -387,6 +403,7 @@ func (s *Subject) GetTopicListSortByTime(subId int, nums int) *[]Subject { //单
 		ret[i].ReadTimes = int(k[5].(int64))
 		ret[i].ReplyTimes = int(k[6].(int64))
 		ret[i].Anonymity = k[7].(bool)
+		ret[i].Path = fmt.Sprintf("s%d_a%d", subId, ret[i].Id)
 	}
 	return &ret
 }

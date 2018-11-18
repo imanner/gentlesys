@@ -4,6 +4,7 @@ package comment
 
 import (
 	"fmt"
+	"gentlesys/store"
 	"os"
 	"sync"
 
@@ -16,7 +17,7 @@ func init() {
 
 }
 
-//所有获取Comment都必须通过该接口，防止异步读写文件冲突，但是commentHandlerManager的清理是个问题
+//所有获取Comment都必须通过该接口，防止异步读写文件冲突，commentHandlerManager得注意清理
 func GetCommentHandlerByPath(filePath string) *Comment {
 	obj, _ := commentHandlerManager.LoadOrStore(filePath, new(Comment))
 	return obj.(*Comment)
@@ -27,6 +28,19 @@ func DelCommentHandlerByPath(filePath string) {
 	commentHandlerManager.Delete(filePath)
 }
 
+//获取帖子的评论数量,不准确，只能在页范围内，不影响索引
+func GetCommentNums(filePath string) int {
+
+	if store.CheckExists(filePath) {
+		fd, _ := os.OpenFile(filePath, os.O_RDWR, 0644)
+		defer fd.Close()
+		if nums, ok := store.GetCurUsedId(fd); ok {
+			return int(nums) + 1
+		}
+	}
+	return 0
+}
+
 //相关的功能在此
 type Comment struct {
 	FilePath string
@@ -34,39 +48,59 @@ type Comment struct {
 	Mutex    sync.RWMutex //用于保护结构体的锁，保护文件的读写，防止异步写
 }
 
-//读当前的评论块，每个块包含OnePageCommentNum条记录
-func (c *Comment) ReadCurCommentBlock() (*CommentStory, uint32, bool) {
-	index, ok := GetCurUsedId(c.Fd)
-
-	if !ok || index >= MaxMetaMcSize {
+//读取指定块的评论内容
+func (c *Comment) ReadCommentBlockByIndex(blockNums int) (*store.CommentStory, uint32, bool) {
+	aMeta := &store.McDataIndexHead{}
+	if !store.ReadMetaData(c.Fd, blockNums, aMeta) {
 		return nil, 0, false
 	}
-	aMeta := &McDataIndexHead{}
-	if !ReadMetaData(c.Fd, int(index), aMeta) {
-		return nil, 0, false
-	}
-	m2 := &CommentStory{Commentdata: nil}
+	m2 := &store.CommentStory{Commentdata: nil}
 	if aMeta.Length > 0 {
 		buf := make([]byte, aMeta.Length)
-		if !ReadOneBlockMemory(c.Fd, buf, int64(aMeta.Start), int(aMeta.Length)) {
+		if !store.ReadOneBlockMemory(c.Fd, buf, int64(aMeta.Start), int(aMeta.Length)) {
 			return nil, 0, false
 		}
 
 		proto.Unmarshal(buf, m2) //反序列化
 	}
-	return m2, index, true
+	return m2, uint32(blockNums), true
 }
 
-func (c *Comment) InitMcData() {
-	cur_offset, _ := c.Fd.Seek(0, os.SEEK_CUR)
-	metaOff := Int32Bytes + MaxMetaMcSize*McDataIndexHeadSize
-	content := make([]byte, metaOff)
+//读当前的评论块，每个块包含OnePageCommentNum条记录
+func (c *Comment) ReadCurCommentBlock() (*store.CommentStory, uint32, bool) {
+	index, ok := store.GetCurUsedId(c.Fd)
 
-	c.Fd.WriteAt(content, cur_offset)
+	if !ok || index >= store.MaxMetaMcSize {
+		return nil, 0, false
+	}
+
+	return c.ReadCommentBlockByIndex(int(index))
+}
+
+//禁用一条评论。
+func (c *Comment) DisableOneComment(pageNums int, id int) (bool, int) {
+	if srcData, _, ok := c.ReadCommentBlockByIndex(pageNums); ok {
+		for _, v := range srcData.Commentdata {
+			if int(*v.Id) == id {
+				//找到并屏蔽
+				if v.IsDel != nil && *v.IsDel {
+					//已经是禁用的了，直接返回
+					return false, 1
+				}
+				v.IsDel = proto.Bool(true)
+				mdata, err := proto.Marshal(srcData)
+				if err != nil {
+					panic(err)
+				}
+				return store.UpdateBlockToStore(c.Fd, mdata, pageNums)
+			}
+		}
+	}
+	return false, 0
 }
 
 //增加一条评论，返回最后评论页面index
-func (c *Comment) AddOneComment(data *CommentData) (bool, int) {
+func (c *Comment) AddOneComment(data *store.CommentData) (bool, int) {
 
 	srcData, curBlockNums, ok := c.ReadCurCommentBlock()
 	if !ok {
@@ -78,7 +112,7 @@ func (c *Comment) AddOneComment(data *CommentData) (bool, int) {
 	//fmt.Printf("%d\n", len(srcData.Commentdata))
 	//读取块的第一个元素时,长度是0，此时不能使用len(srcData.Commentdata)-1
 	if len(srcData.Commentdata) == 0 {
-		id += int32(curBlockNums) * OnePageCommentNum
+		id += int32(curBlockNums) * store.OnePageCommentNum
 	} else {
 		id = *(srcData.Commentdata[len(srcData.Commentdata)-1].Id) + 1
 	}
@@ -91,31 +125,31 @@ func (c *Comment) AddOneComment(data *CommentData) (bool, int) {
 	}
 	var isCurMcFull bool = false
 	//如果达到OnePageCommentNum，表示当前满了一页，要开始更新索引到下一页
-	if len(srcData.Commentdata) >= OnePageCommentNum {
+	if len(srcData.Commentdata) >= store.OnePageCommentNum {
 		isCurMcFull = true
 		fmt.Printf("full len %d ", len(srcData.Commentdata))
 	}
 	//fmt.Printf("update len %d ", len(srcData.Commentdata))
-	return UpdateTailBlockToStore(c.Fd, mdata, isCurMcFull)
+	return store.UpdateTailBlockToStore(c.Fd, mdata, isCurMcFull)
 
 }
 
 //获取一页评论
-func (c *Comment) GetOnePageComments(pageNums int) (*[]*CommentData, bool) {
-	index, ok := GetCurUsedId(c.Fd)
+func (c *Comment) GetOnePageComments(pageNums int) (*[]*store.CommentData, bool) {
+	index, ok := store.GetCurUsedId(c.Fd)
 
-	if !ok || pageNums > int(index) || index >= MaxMetaMcSize {
+	if !ok || pageNums > int(index) || index >= store.MaxMetaMcSize {
 		return nil, false
 	}
 
-	aMeta := &McDataIndexHead{}
-	if !ReadMetaData(c.Fd, pageNums, aMeta) {
+	aMeta := &store.McDataIndexHead{}
+	if !store.ReadMetaData(c.Fd, pageNums, aMeta) {
 		return nil, false
 	}
-	m2 := &CommentStory{}
+	m2 := &store.CommentStory{}
 	if aMeta.Length > 0 {
 		buf := make([]byte, aMeta.Length)
-		if !ReadOneBlockMemory(c.Fd, buf, int64(aMeta.Start), int(aMeta.Length)) {
+		if !store.ReadOneBlockMemory(c.Fd, buf, int64(aMeta.Start), int(aMeta.Length)) {
 			return nil, false
 		}
 

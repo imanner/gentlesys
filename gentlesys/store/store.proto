@@ -1,6 +1,6 @@
 syntax = "proto2";
 
-package global;
+package store;
 
 message CommentStory {
 	repeated CommentData commentdata = 1; /*基本的所以记忆体*/
@@ -12,6 +12,7 @@ message CommentData {
 	optional string time = 3;    /*评论时间*/
 	optional string content =4; /*评论内容*/
 	optional int32 	id = 5;/*该评论的序号*/
+	optional bool isDel = 6; /*是否被删除*/
 }
 
 message UserTopics {
@@ -23,4 +24,14 @@ message UserTopicData {
 	optional int32 aid = 2; //帖子的id
 	optional string time = 3;    /*评论时间*/
 	optional string title = 4; //帖子的题目
+}
+
+message UserComments {
+	repeated UserCommentData usercommentdata = 1; /*基本的所以记忆体*/
+}
+
+message UserCommentData {
+	optional int32 subId = 1; //主题id
+	optional int32 aid = 2; //文章id
+	optional CommentData commentdata = 3;	
 }

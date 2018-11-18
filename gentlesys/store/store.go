@@ -1,4 +1,4 @@
-package comment
+package store
 
 import (
 	"encoding/binary"
@@ -36,8 +36,8 @@ type McDataIndexHead struct {
 	Length uint32 /*一块data的长度。OnePageCommentNum条评论共用该空间，目前看是够了。*/
 }
 
-//获取帖子的评论数量,不准确，只能在页范围内，不影响索引
-func GetCommentNums(filePath string) int {
+//获取对象的数量,不准确，只能在页范围内，不影响索引
+func GetObjPageNums(filePath string) int {
 
 	if CheckExists(filePath) {
 		fd, _ := os.OpenFile(filePath, os.O_RDWR, 0644)
@@ -47,6 +47,14 @@ func GetCommentNums(filePath string) int {
 		}
 	}
 	return 0
+}
+
+func InitMcData(fd *os.File) {
+	cur_offset, _ := fd.Seek(0, os.SEEK_CUR)
+	metaOff := Int32Bytes + MaxMetaMcSize*McDataIndexHeadSize
+	content := make([]byte, metaOff)
+
+	fd.WriteAt(content, cur_offset)
 }
 
 //返回当前的元数据
@@ -229,4 +237,39 @@ func ReadOneBlockMemory(fd *os.File, buf []byte, start int64, length int) bool {
 		}
 	}
 	return true
+}
+
+//修改一块区域，目前只修改一个评论的是否屏蔽位，不能随意修改最后一个块前面的块，因为大小已经定了。如果要修改
+//只能减小块空间，千万不能增大块空间，否则会覆盖后面的数据
+func UpdateBlockToStore(fd *os.File, content []byte, blockNum int) (bool, int) {
+	//读取当前使用块
+	useId, ok := GetCurUsedId(fd)
+	if !ok || blockNum > int(useId) {
+		return false, 0
+	}
+
+	aMeta := &McDataIndexHead{}
+	ReadMetaData(fd, blockNum, aMeta)
+	if len(content) > int(aMeta.Length) {
+		//新内容不能超过旧现有内容
+		return false, 1
+	}
+	cur_offset := int64(aMeta.Start)
+	/*一定要超过元数据，元数据是不能被写的*/
+	metaOff := int64(Int32Bytes + MaxMetaMcSize*McDataIndexHeadSize)
+	if cur_offset < metaOff+1 {
+		cur_offset = metaOff + 1
+	}
+
+	fd.WriteAt(content, cur_offset)
+
+	//更新元数据
+	aMeta.Start = uint32(cur_offset)
+	aMeta.Length = uint32(len(content))
+
+	ok = UpdateMetaData(fd, blockNum, aMeta)
+	if !ok {
+		return false, 0
+	}
+	return true, 0
 }

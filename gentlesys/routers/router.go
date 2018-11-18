@@ -43,6 +43,8 @@ func init() {
 	beego.Router(audit.GetCommonStrCfg("managerurl"), &controllers.ManageController{})
 	//禁止帖子
 	beego.Router("/disable", &controllers.DisableController{})
+	//删除评论
+	beego.Router("/remove", &controllers.RemoveController{})
 	//用户信息
 	beego.Router("/user", &controllers.UserController{})
 

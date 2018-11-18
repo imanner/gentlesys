@@ -65,7 +65,11 @@
     </ul>
     {{range .Comments}}
        <p class="comment-css"><span>#{{.Id}}楼 </span><a href="/user?name={{.UserName}}">{{.UserName}}</a>&nbsp;&nbsp;{{.Time}} <a class="btn-sm" href="#write" onclick="test({{.UserName}},{{.Id}})">回复</a></p>
+       {{if isdeled .}}
+       <p>#内容已被屏蔽</p>
+       {{else}}
        <p>{{str2html .Content}}</p>
+       {{end}}
        <h5 class="page-header"></h5>
     {{end}}
    
