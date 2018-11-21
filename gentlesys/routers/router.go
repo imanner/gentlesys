@@ -17,6 +17,12 @@ func init() {
 	//发文章
 	beego.Router("/article", &controllers.ArticleController{})
 
+	//发公告
+	/*
+		beego.Router("/wnotice", &controllers.WnoticeController{})
+		//浏览公告
+		beego.Router("/rnotice", &controllers.RnoticeController{})
+	*/
 	//浏览文章
 	beego.Router("/browse", &controllers.BrowseController{})
 

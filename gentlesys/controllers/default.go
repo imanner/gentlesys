@@ -104,6 +104,14 @@ func (c *SubjectController) Get() {
 	c.Data["SubName"] = subobj.Name
 	c.Data["Sid"] = subobj.UniqueId
 
+	//公告
+	notices := cachemanager.CacheSubjectObjMaps[numId].GetNotices()
+	if notices != nil && len(*notices) > 0 {
+		c.Data["Notice"] = notices
+		c.Data["Nid"] = 1001
+
+	}
+
 	if pageIndex >= 0 && pageIndex < global.CachePagesNums {
 		//如果是首页，首页特殊处理，因为首页可能实时发帖更新
 		topics := cachemanager.CacheSubjectObjMaps[numId].ReadElementsWithPageNums(pageIndex)
@@ -124,6 +132,135 @@ func (c *SubjectController) Get() {
 	c.TplName = "subject.tpl"
 }
 
+//浏览公告相关的结构
+type RnoticeController struct {
+	beego.Controller
+}
+
+/*
+//浏览格式 rnotice?sid=%d&aid=%d"
+func (c *RnoticeController) Get() {
+	aid, _ := c.GetInt("aid", -1)
+
+	if aid == -1 {
+		c.Abort("401")
+		return
+	}
+*/
+/*
+		n := &sqlsys.Notice{Id: aid}
+		if n.ReadDb() {
+			c.Data["Title"] = n.Title
+			c.Data["Navigation"] = navigation.GetNav()
+			c.Data["Date"] = n.Date
+			c.Data["UserName"] = n.UserName
+			subnodes := subject.GetSubjectById(n.SubId)
+			c.Data["HrefSub"] = subnodes.Href
+			c.Data["SubName"] = subnodes.Name
+			c.Data["Args"] = fmt.Sprintf("?sid=%d", n.SubId)
+
+			path := n.GetArtiPath()
+			if fileObj, err := os.Open(path); err == nil {
+				defer fileObj.Close()
+				if contents, err := ioutil.ReadAll(fileObj); err == nil {
+					result := strings.Replace(string(contents), "\n", "", 1)
+					c.Data["Story"] = result
+				}
+			} else {
+				c.Data["Story"] = "很遗憾，用户没有留下TA的内容"
+			}
+		}
+		c.TplName = "rnotice.tpl"
+
+}*/
+
+//写公告相关的结构
+/*
+type WnoticeController struct {
+	beego.Controller
+}*/
+
+//从客户端过来提交的公告msg
+/*
+type noticeMsg struct {
+	Id    int    `form:"id_"`
+	Subid int    `form:"subId_" valid:"Required“`
+	Title string `form:"title_" valid:"Required“`
+	Story string `form:"story_" valid:"Required“`
+}
+*/
+//进入到写公告的界面
+/*
+func (c *WnoticeController) Get() {
+	v := c.GetSession("id")
+	if v == nil || !audit.IsAdmin(v.(int)) {
+		//非管理员不能发布公告
+		c.Abort("401")
+	}
+
+	c.Data["Navigation"] = navigation.GetNav()
+	u := c.GetSession("user")
+	c.Data["UserId"] = v.(int)
+	c.Data["UserName"] = u.(string)
+	c.Data["SubType"] = subject.GetSubjectMap()
+	c.Data["Sid"] = 1001
+
+	c.TplName = "wnotice.tpl"
+}*/
+
+//提交公告
+/*
+func (c *WnoticeController) Post() {
+	v := c.GetSession("id")
+	if v == nil || !audit.IsAdmin(v.(int)) {
+		//非管理员不能发布公告
+		c.Abort("401")
+	}
+
+	u := &noticeMsg{}
+	if err := c.ParseForm(u); err != nil {
+		c.Ctx.WriteString("[2]格式不对，请修正！")
+	} else {
+
+		if !DealParameterCheck(u, "[3]数据格式异常，请修正！", &c.Controller) {
+			return
+		}
+		//如果存在文章id，说明是修改，不是新增，走更新流程
+		//更新流程
+		if u.Id > 0 {
+			return
+		}
+
+		if u.Story == "" {
+			c.Ctx.WriteString("[3]公告数据格式异常，请检查公告文字长度，请修正！")
+			logs.Error("[3]公告数据格式异常，请修正！")
+			return
+		}
+
+		//新增流程
+		notice := &sqlsys.Notice{SubId: u.Subid, Title: u.Title}
+		notice.Date = time.Now().Format("2006-01-02 15:04:05")
+		user := c.GetSession("user")
+		notice.UserName = user.(string)
+		if id := notice.WriteDb(); id != 0 {
+			//去掉kindeditor非法的字符
+			u.Story = reg.DelErrorString(u.Story)
+			//图片加上自动适配
+			u.Story = reg.AddImagAutoClass(u.Story)
+
+			err := ioutil.WriteFile(notice.GetArtiPath(), []byte(u.Story), 0644)
+			if err != nil {
+				c.Ctx.WriteString("[4]保存公告文件失败！")
+			} else {
+				ret := fmt.Sprintf("[0]/rnotice?aid=%d", id)
+				c.Ctx.WriteString(ret)
+			}
+		} else {
+			c.Ctx.WriteString("[5]发布公告失败")
+		}
+	}
+}
+*/
 type ArticleController struct {
 	beego.Controller
 }
@@ -146,14 +283,34 @@ func (c *ArticleController) Get() {
 		return
 	}
 
-	c.Data["Navigation"] = navigation.GetNav()
-	id := c.GetSession("id")
-	c.Data["UserId"] = id.(int)
-	c.Data["UserName"] = v.(string)
-	c.Data["TopicType"] = subject.GetTopicTyleList()
-	c.Data["Sid"] = sid
+	//只有管理者才能发1001公告
+	if sid == 1001 {
+		id := c.GetSession("id")
+		if id == nil || !audit.IsAdmin(id.(int)) {
+			//非管理员不能发布公告
+			c.Ctx.WriteString("[4]没有权限，只有管理者才能发布公告！")
+			return
+		}
+		c.Data["Navigation"] = navigation.GetNav()
+		c.Data["UserId"] = id.(int)
+		c.Data["UserName"] = v.(string)
+		c.Data["SubType"] = subject.GetSubjectMap()
+		c.Data["Sid"] = 1001
 
-	c.TplName = "topic.tpl"
+		c.TplName = "wnotice.tpl"
+		return
+	} else {
+		//其他一般的帖子
+		id := c.GetSession("id")
+		c.Data["Navigation"] = navigation.GetNav()
+		c.Data["UserId"] = id.(int)
+		c.Data["UserName"] = v.(string)
+		c.Data["TopicType"] = subject.GetTopicTyleList()
+		c.Data["Sid"] = sid
+
+		c.TplName = "topic.tpl"
+	}
+
 }
 
 //发文章写数据库，然后将新生成的网页地址发给前端；用户提交的分享数据
@@ -172,6 +329,12 @@ func (c *ArticleController) Post() {
 	} else {
 
 		if !DealParameterCheck(u, "[3]数据格式异常，请修正！", &c.Controller) {
+			return
+		}
+
+		//禁止非管理员提交到公告区
+		if u.SubId == 1001 && !audit.IsAdmin(v.(int)) {
+			c.Ctx.WriteString("[3]禁止：只有管理员才能发布公告。")
 			return
 		}
 		//如果存在文章id，说明是修改，不是新增，走更新流程
@@ -322,7 +485,6 @@ func (c *BrowseController) Get() {
 			c.Ctx.WriteString("[3]文章不符合审核规定，已经被禁用！")
 			return
 		}
-		c.Data["Type"] = subject.GetTopicTyleById(subobj.Type)
 
 		if subobj.Anonymity {
 			c.Data["UserName"] = "匿名网友"
@@ -340,6 +502,14 @@ func (c *BrowseController) Get() {
 		c.Data["SubName"] = subnodes.Name
 
 		c.Data["Sid"] = sid
+
+		if sid != 1001 {
+			c.Data["Type"] = subject.GetTopicTyleById(subobj.Type)
+			c.Data["HrefToSub"] = "#"
+		} else {
+			c.Data["HrefToSub"] = subject.GetSubjectById(subobj.Type).Href
+			c.Data["Type"] = fmt.Sprintf("[%s] 公告", subject.GetSubjectById(subobj.Type).Name)
+		}
 		c.Data["Aid"] = aid
 		c.Data["Args"] = fmt.Sprintf("?sid=%d", sid)
 
@@ -382,7 +552,7 @@ func (c *BrowseController) Get() {
 		if subobj.Path == "" {
 			c.Data["Story"] = "很遗憾，用户没有留下TA的故事"
 		} else {
-			path := fmt.Sprintf("%s/%s", audit.ArticleDir, subobj.Path)
+			path := subobj.GetArtiPath(sid)
 			if fileObj, err := os.Open(path); err == nil {
 				defer fileObj.Close()
 				if contents, err := ioutil.ReadAll(fileObj); err == nil {
@@ -420,12 +590,14 @@ type CommentController struct {
 func (c *CommentController) UpdateUserCommentRecord(content *store.CommentData, userId int, sid int, aid int) {
 	aRecord := &store.UserCommentData{SubId: proto.Int(sid), Aid: proto.Int(aid)}
 	aRecord.Commentdata = content
+	//fmt.Printf("写入的是%v\n", aRecord.Commentdata)
 	filePath := fmt.Sprintf("%s\\c_%d", audit.GetCommonStrCfg("userInfoDirPath"), userId)
 	isExist := store.CheckExists(filePath)
 	fd, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0644)
 	if err == nil {
 		defer fd.Close()
 	} else {
+		fmt.Printf("文件打开失败，写用户中心评论记录失败\n")
 		return
 	}
 
@@ -436,6 +608,7 @@ func (c *CommentController) UpdateUserCommentRecord(content *store.CommentData, 
 	if ok, _ := cobj.AddOneUserComment(aRecord); ok {
 	} else {
 		logs.Error("UpdateUserCommentRecord err")
+		fmt.Printf("写用户中心评论记录失败\n")
 	}
 
 }
@@ -528,7 +701,7 @@ func (c *CommentController) Post() {
 		//更新用户的评论情况
 		go c.UpdateUserCommentRecord(aData, id.(int), u.SubId, u.ArtiId)
 	} else {
-		c.Ctx.WriteString("[1]提交点评失败")
+		c.Ctx.WriteString("[2]提交点评失败")
 	}
 }
 
@@ -931,7 +1104,7 @@ func (c *ManageController) GetTopicsByName(name string, sid int, pageIndex int) 
 	user := &sqlsys.User{Name: name}
 
 	if !user.GetUserByName() {
-		c.Data["Info"] = fmt.Sprintf("[1]用户%s没有发布过任何帖子", name)
+		c.Data["Info"] = fmt.Sprintf("[1]用户 [%s] 没有发布过任何帖子", name)
 		c.TplName = "manage.tpl"
 		return
 	}
@@ -953,7 +1126,7 @@ func (c *ManageController) GetTopicsByName(name string, sid int, pageIndex int) 
 			c.Data["NextPage"] = next
 		}
 	} else {
-		c.Data["Info"] = fmt.Sprintf("[1]用户%s没有更多的帖子", name)
+		c.Data["Info"] = fmt.Sprintf("[1]用户 [%s] 没有更多的帖子", name)
 	}
 	c.TplName = "manage.tpl"
 }
@@ -977,7 +1150,7 @@ func (c *ManageController) GetTopicsByDate(date string, sid int, pageIndex int) 
 		}
 
 	} else {
-		c.Data["Info"] = fmt.Sprintf("[1]日期%s没有更多的帖子", date)
+		c.Data["Info"] = fmt.Sprintf("[1]日期 [%s] 没有更多的帖子", date)
 	}
 	c.TplName = "manage.tpl"
 }
@@ -986,7 +1159,7 @@ func (c *ManageController) GetCommentsByName(name string, pageIndex int) {
 	user := &sqlsys.User{Name: name}
 
 	if !user.GetUserByName() {
-		c.Data["Info"] = fmt.Sprintf("[1]用户%s没有发布过任何回复", name)
+		c.Data["Info"] = fmt.Sprintf("[1]用户 [%s] 没有发布过任何回复", name)
 		c.TplName = "manage.tpl"
 		return
 	}
@@ -1009,7 +1182,7 @@ func (c *ManageController) GetCommentsByName(name string, pageIndex int) {
 		c.Data["PrePage"] = prev
 		c.Data["NextPage"] = next
 	} else {
-		c.Data["Info"] = fmt.Sprintf("[1]用户%s没有更多的回复", name)
+		c.Data["Info"] = fmt.Sprintf("[1]用户 [%s] 没有更多的回复", name)
 	}
 
 	coments := c.GetUserComents(commentFilePath, pageIndex)
@@ -1020,7 +1193,7 @@ func (c *ManageController) GetCommentsByName(name string, pageIndex int) {
 		c.Data["PageNum"] = pageIndex
 
 	} else {
-		c.Data["Info"] = fmt.Sprintf("[1]用户%s没有更多的回复", name)
+		c.Data["Info"] = fmt.Sprintf("[1]用户 [%s] 没有更多的回复", name)
 	}
 
 	c.TplName = "manage.tpl"
@@ -1041,7 +1214,7 @@ func (c *ManageController) Get() {
 
 	c.Data["Navigation"] = navigation.GetNav()
 	c.Data["ManageUrl"] = audit.GetCommonStrCfg("managerurl")
-	c.Data["SubType"] = subject.GetMainPageSubjectData()
+	c.Data["SubType"] = subject.GetSubjectMap() //subject.GetMainPageSubjectData()
 
 	pageIndex, _ := c.GetInt("page", 0)
 
@@ -1054,8 +1227,9 @@ func (c *ManageController) Get() {
 	}
 
 	sid, _ := c.GetInt("sid", -1)
-	if sid == -1 {
-		//不是查询结果，走到欢迎页面
+	if sid == -1 || !subject.IsSubjectIdExist(sid) {
+		//sid不存在
+		c.Data["Info"] = fmt.Sprintf("[1]该主题并不存在")
 		c.TplName = "manage.tpl"
 		return
 	}
@@ -1342,7 +1516,7 @@ func (c *RemoveController) Post() {
 				return
 			}
 
-			if ret, _ := ctobj.DisableOneComment(u.CommentPageNum, u.CommentId); ret {
+			if ret, _ := ctobj.DisableOneComment(u.SubId, u.ArtiId, u.CommentPageNum, u.CommentId); ret {
 				c.Ctx.WriteString(fmt.Sprintf("[0]sid=%d&aid=%d帖子第%d楼回复禁用成功", u.SubId, u.ArtiId, u.CommentId))
 			} else {
 				c.Ctx.WriteString(fmt.Sprintf("[4]sid=%d&aid=%d帖子第%d楼回复禁用成功, 但用户中心没有同步禁用状态", u.SubId, u.ArtiId, u.CommentId))

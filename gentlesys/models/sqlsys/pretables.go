@@ -103,6 +103,11 @@ type Sub29 struct {
 	Subject
 }
 
+//表示公告的数据结构，但是Type不表示类型，而是表示SubId,特此说明
+type Sub1001 struct {
+	Subject
+}
+
 /*将获取内含Subject地址的函数放在基类中，这样Subxx均包含该方法*/
 func (s *Subject) GetSubject() *Subject {
 	return s
@@ -178,7 +183,6 @@ func GetInstanceById(id int) TranInterface {
 
 	case 21:
 		return new(Sub21)
-
 	case 22:
 		return new(Sub22)
 
@@ -196,12 +200,13 @@ func GetInstanceById(id int) TranInterface {
 
 	case 27:
 		return new(Sub27)
-
 	case 28:
 		return new(Sub28)
-
 	case 29:
 		return new(Sub29)
+		//第1001号标签，表示是公告，其他主题不可占用该标签
+	case 1001:
+		return new(Sub1001)
 	default:
 		return nil
 	}

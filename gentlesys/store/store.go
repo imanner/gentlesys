@@ -273,3 +273,31 @@ func UpdateBlockToStore(fd *os.File, content []byte, blockNum int) (bool, int) {
 	}
 	return true, 0
 }
+
+//获取块中一页的内容,如果pageNums=-1，则获取最新一页，忽略pageNums
+func GetOnePageContent(fd *os.File, pageNums int) (*[]byte, bool) {
+	index, ok := GetCurUsedId(fd)
+
+	if !ok || pageNums > int(index) || index >= MaxMetaMcSize {
+		return nil, false
+	}
+	//pageNums=-1表示获取最新一页
+	if pageNums == -1 {
+		pageNums = int(index)
+	}
+
+	aMeta := &McDataIndexHead{}
+	if !ReadMetaData(fd, pageNums, aMeta) {
+		return nil, false
+	}
+
+	if aMeta.Length > 0 {
+		buf := make([]byte, aMeta.Length)
+		if !ReadOneBlockMemory(fd, buf, int64(aMeta.Start), int(aMeta.Length)) {
+			return nil, false
+		}
+		return &buf, true
+	} else {
+		return nil, true
+	}
+}

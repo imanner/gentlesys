@@ -43,10 +43,10 @@
 <div class="row">
 
 <div class="col-md-6 col-md-offset-1">
-    <p class="crumbs"><a href="/">首页</a> &gt;  <a href="{{.HrefSub}}">{{.SubName}}</a>&gt;<a href="/article{{.Args}}">[我要发帖]</a></p>
+    <p class="crumbs"><a href="/">首页</a> &gt;<a href="{{.HrefSub}}">{{.SubName}}</a>&gt;<a href="/article{{.Args}}">[我要发帖]</a></p>
     <h4 class="text-center">{{.Title}}</h4>
-    <p><span class="key-prob">{{.Type}}</span>
-    <span class = "key-prob">作者:{{.UserName}}</span>
+    <p><span class="key-prob"><a href="{{.HrefToSub}}">{{.Type}}</a></span>
+    <span class = "key-prob">作者:<a href="/user?name={{.UserName}}">{{.UserName}}</a></span>
     <span class = "key-prob">{{.Date}}</span></p>
 
     <div id="story" class="body-css">

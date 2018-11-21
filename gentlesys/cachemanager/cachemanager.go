@@ -1,6 +1,7 @@
 package cachemanager
 
 import (
+	"container/list"
 	"fmt"
 	"gentlesys/global"
 	"gentlesys/models/sqlsys"
@@ -9,6 +10,8 @@ import (
 )
 
 //一个用来管理缓存的文件，主要是对主题中的页面进行缓存，避免过多频繁查询数据库
+
+const maxNoticesCount = 10
 
 func init() {
 	//注意顺序
@@ -20,16 +23,27 @@ var CacheSubjectObjMaps map[int]*CacheObj
 
 //每个主题的global.CachePagesNums个页面都是在内存中的，每页global.OnePageElementCount个帖子
 func initCacheSubject() {
-	subNodes := subject.GetMainPageSubjectData()
+	//subNodes := subject.GetMainPageSubjectData()
+	subNodesMap := subject.GetSubjectMap()
 
 	CacheSubjectObjMaps = make(map[int]*CacheObj)
-	for _, k := range *subNodes {
+	for _, k := range *subNodesMap {
 		CacheSubjectObjMaps[k.UniqueId] = new(CacheObj)
 		CacheSubjectObjMaps[k.UniqueId].SubId = k.UniqueId
 		CacheSubjectObjMaps[k.UniqueId].elementMap = make(map[int]*subjectNode)
+		if k.UniqueId != 1001 {
+			//最多10条最新通知，而通知主题本身不需要
+			//CacheSubjectObjMaps[k.UniqueId].notices = make([]*sqlsys.Subject, 10)
+			CacheSubjectObjMaps[k.UniqueId].notices = list.New()
+		}
 		CacheSubjectObjMaps[k.UniqueId].accessFlag = make([]int, global.OnePageElementCount*global.CachePagesNums)
 		CacheSubjectObjMaps[k.UniqueId].InitCacheTopicListFromDb()
 	}
+	//再初始化notices
+	for _, k := range *subNodesMap {
+		CacheSubjectObjMaps[k.UniqueId].initCacheNoticesList()
+	}
+
 }
 
 type subjectNode struct {
@@ -42,6 +56,47 @@ type CacheObj struct {
 	newCount   int                  //新加元素的计数，为了配合nginx的缓存机制
 	elementMap map[int]*subjectNode //不使用[]，使用map，因为需要使用aid来快速定位到subject
 	accessFlag []int                //页面是否访问过的标识，如果是0，表示没有访问过
+	//notices    []*sqlsys.Subject    //通知栏
+	notices      *list.List   //通知栏
+	mutexNotices sync.RWMutex //仅仅保护通知栏
+}
+
+//获取主题的通知
+func (c *CacheObj) GetNotices() *[]*sqlsys.Subject {
+	if c.SubId == 1001 || c.notices.Len() == 0 {
+		return nil
+	}
+	ret := make([]*sqlsys.Subject, c.notices.Len())
+	i := 0
+
+	c.mutexNotices.RLock()
+	defer c.mutexNotices.RUnlock()
+
+	for e := c.notices.Front(); e != nil; e = e.Next() {
+		ret[i] = e.Value.(*sqlsys.Subject)
+		i++
+	}
+	return &ret
+}
+
+//这个必须要在InitCacheTopicListFromDb 1001之后才能调用
+func (c *CacheObj) initCacheNoticesList() {
+	if c.SubId == 1001 {
+		return
+	}
+	nums := subject.GetCurTotalTopicNums(1001)
+	j := 0
+	//notices的type表示其所在的主题id
+	for i := 1; i <= nums; i++ {
+		if v, ok := CacheSubjectObjMaps[1001].elementMap[i]; ok && v.s.Type == c.SubId {
+			//c.notices[j] = v.s
+			c.notices.PushFront(v.s)
+			j++
+			if j >= maxNoticesCount {
+				break
+			}
+		}
+	}
 }
 
 //初始化操作时没有加锁，考虑到还在程序初始化期，不会并发访问
@@ -93,7 +148,7 @@ func (c *CacheObj) saveCacheElement() {
 		if v.times > 10 {
 			v.s.UpdateSubjectField(c.SubId, "ReadTimes", "ReplyTimes")
 			v.times = 0
-			fmt.Printf("开始持久化 %d %d...\n", c.SubId, v.s.Id)
+			//fmt.Printf("开始持久化 %d %d...\n", c.SubId, v.s.Id)
 		}
 
 	}
@@ -114,6 +169,18 @@ func (c *CacheObj) ReadSubjectFromCache(id int) (int, *sqlsys.Subject) {
 
 }
 
+func (c *CacheObj) UpdateNoticeElement(v interface{}) {
+	if c.SubId != 1001 {
+		c.mutexNotices.Lock()
+		defer c.mutexNotices.Unlock()
+		c.notices.PushFront(v)
+		if c.notices.Len() > maxNoticesCount {
+			e := c.notices.Back()
+			c.notices.Remove(e)
+		}
+	}
+}
+
 //在链表头部加入一个数据。v 必须是 * 类型。返回值 是否清空过nginx缓存
 func (c *CacheObj) AddElement(v interface{}) {
 	c.mutex.Lock()
@@ -121,6 +188,11 @@ func (c *CacheObj) AddElement(v interface{}) {
 
 	c.elementMap[v.(*sqlsys.Subject).Id] = &subjectNode{s: v.(*sqlsys.Subject)}
 	c.newCount++
+
+	if c.SubId == 1001 && v.(*sqlsys.Subject).Type != 1001 {
+		//如果是公告，则还需要刷新对应主板公告的列表
+		CacheSubjectObjMaps[v.(*sqlsys.Subject).Type].UpdateNoticeElement(v)
+	}
 
 	//刷新的条件：1 如果新发帖大于FlushNumsLimit，则删除elementMap尾部多余缓存的元素，避免map爆炸
 	if c.newCount >= global.FlushNumsLimit {
@@ -132,10 +204,13 @@ func (c *CacheObj) AddElement(v interface{}) {
 			start := end - global.FlushNumsLimit
 			for i := start; i <= end; i++ {
 				//这里需要将元素持久化数据库。考虑用一个go程去做，避免长时间不返回
-				if c.elementMap[i].times > 0 {
-					c.elementMap[i].s.UpdateSubjectField(c.SubId, "ReadTimes", "ReplyTimes")
+				if _, ok := c.elementMap[i]; ok {
+					if c.elementMap[i].times > 0 {
+						c.elementMap[i].s.UpdateSubjectField(c.SubId, "ReadTimes", "ReplyTimes")
+					}
+					delete(c.elementMap, i)
 				}
-				delete(c.elementMap, i)
+
 			}
 			fmt.Printf("删除多余元素后，现在元素个数%d\n", len(c.elementMap))
 		}

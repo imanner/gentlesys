@@ -34,7 +34,7 @@
 <div class="row">
     <hr>
     <div class="col-md-10 col-md-offset-2">
-    <p id="info" class="alert"><strong>提示:一切正常{{.Info}}</strong></p>
+    <p id="info" class="alert"><strong>提示:{{.Info}}</strong></p>
     <p style="padding:5px 15px;">
     <span><strong>请选择在哪个版块主题中查找</strong></span>
     <span><select id="subType" class="select">

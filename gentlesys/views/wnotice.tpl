@@ -31,22 +31,22 @@
 
 <form role="form">
     <div class="form-group">
-        <h3>您正在发布帖子</h3>
+        <h3>您正在发布公告</h3>
         <p><span class="key-prob">作者信息</span> {{.UserName}}     <label class="btn">
 		<input id="anonymity" type="checkbox" {{.Check}} autocomplete="off"> 匿名发表
         </label></p>
-        <h5><strong>博文题目 (必填，提示：为便于首页展示，题目不宜过长（推荐30字以内），字数不能超过128)</strong></h5>
+        <h5><strong>公告题目 (必填，提示：为便于首页展示，题目不宜过长（推荐30字以内），字数不能超过128)</strong></h5>
     	<textarea id="title" class="form-control" rows="1"></textarea>
     	<p style="margin-top:10px;"><span>
-    	<strong>请选择文章类型</strong>
+    	<strong>请选择公告所在的版块</strong>
     	</span>
     	<span><select id="tcType" class="select">
-    	{{range $index, $elem := .TopicType}}
-        <option value="{{$index}}">{{$elem}}</option>
+    	{{range .SubType}}
+        <option value="{{.UniqueId}}">{{.Name}}</option>
         {{end}}
         </select>
         </span></p>
-    	<h5><strong>文章内容 (必填，提示：html字数不能超过1000000，如果字数较多，请先写好后一并粘贴过来，以防文字丢失！)</strong></h5>
+    	<h5><strong>公告内容 (必填，提示：html字数不能超过1000000，如果字数较多，请先写好后一并粘贴过来，以防文字丢失！)</strong></h5>
 
         <div>
         <textarea id="story" name="content" style="width:100%;height:500px;">
@@ -87,10 +87,10 @@
 			
     		var title = document.getElementById("title").value;
 			if (title.length > 128) {
-        		document.getElementById("info").innerHTML=("分享题目 超过128字，请删减一些，目前有长度是" + title.length);
+        		document.getElementById("info").innerHTML=("公告题目 超过128字，请删减一些，目前有长度是" + title.length);
 				return;
 			} else if (title.length < 1) {
-				document.getElementById("info").innerHTML=("分享题目 是空的，请填写");
+				document.getElementById("info").innerHTML=("公告题目 是空的，请填写");
 				return;
 			}
 			
@@ -99,7 +99,7 @@
 			
 			var count = ke.count()
             if(count < 1) {
-				document.getElementById("info").innerHTML=("文章内容 是空的，请填写");
+				document.getElementById("info").innerHTML=("公告内容 是空的，请填写");
 				return;
 			}
 			var story = ke.html();
@@ -147,8 +147,8 @@
 
         }
     	</script>
-    	<button id="sendButton" type="button" class="btn btn-default btn-sm" style = "float: right;" onclick="send()">提交分享</button>
-        <p id="info" class="alert alert-info">点击右边的 提交分享 按钮进行提交！</p>
+    	<button id="sendButton" type="button" class="btn btn-default btn-sm" style = "float: right;" onclick="send()">提交公告</button>
+        <p id="info" class="alert alert-info">点击右边的 提交公告 按钮进行提交！</p>
 	</div>
 </form>
 </div>

@@ -16,12 +16,14 @@ type subNode struct {
 
 //原子更新当前帖子的索引
 func UpdateCurTopicIndex(subId int, value int) {
-	atomic.StoreInt32(&((*subNodes)[subId].CurTopicIndex), int32(value))
+	//atomic.StoreInt32(&((*subNodes)[subId].CurTopicIndex), int32(value))
+	atomic.StoreInt32(&(GetSubjectById(subId).CurTopicIndex), int32(value))
 }
 
 //读写最好都是原子操作,这样可以避免并发读取错误
 func GetCurTotalTopicNums(subId int) int {
-	return int(atomic.LoadInt32(&(*subNodes)[subId].CurTopicIndex))
+	//return int(atomic.LoadInt32(&(*subNodes)[subId].CurTopicIndex))
+	return int(atomic.LoadInt32(&GetSubjectById(subId).CurTopicIndex))
 }
 
 var subNodes *[]subNode = nil
@@ -51,6 +53,10 @@ func GetSubjectById(id int) *subNode {
 	return subNodesIndexMap[id]
 }
 
+func GetSubjectMap() *map[int]*subNode {
+	return &subNodesIndexMap
+}
+
 //基本是个包装函数，做了判空
 func GetMainPageSubjectData() *[]subNode {
 	if subNodes == nil {
@@ -63,8 +69,10 @@ func GetMainPageSubjectData() *[]subNode {
 func getMainPageSubjectCfg() *[]subNode {
 	nums := global.GetIntFromCfg("subject::nums", 0)
 	if nums > 0 {
+
 		pageSubNodes := make([]subNode, nums)
-		subNodesIndexMap = make(map[int]*subNode, nums)
+		//多一个给公告
+		subNodesIndexMap = make(map[int]*subNode, nums+1)
 
 		for i := 0; i < nums; i++ {
 			name_ := fmt.Sprintf("subject::id.%d.name", i)
@@ -79,6 +87,14 @@ func getMainPageSubjectCfg() *[]subNode {
 			pageSubNodes[i].Href = fmt.Sprintf("/subject%d", pageSubNodes[i].UniqueId)
 			subNodesIndexMap[pageSubNodes[i].UniqueId] = &pageSubNodes[i]
 		}
+		//初始化公告的设置
+		noticeNode := &subNode{}
+		noticeNode.Name = "公告"
+		noticeNode.UniqueId = 1001
+		//noticeNode.Desc = "版主才能发布公告"
+		noticeNode.Href = fmt.Sprintf("/subject%d", noticeNode.UniqueId)
+		subNodesIndexMap[noticeNode.UniqueId] = noticeNode
+
 		return &pageSubNodes
 	}
 	return nil

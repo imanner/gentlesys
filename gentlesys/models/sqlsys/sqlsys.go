@@ -283,19 +283,63 @@ func (v *UserAudit) Insert() bool {
 	return false
 }
 
+/*
+func (v *Notice) WriteDb() int {
+	o := orm.NewOrm()
+
+	id, err := o.Insert(v)
+	if err != nil {
+		logs.Error(err, id)
+		return 0
+	}
+
+	return int(id)
+}*/
+//每个主题上面的公告栏
+/*
+type Notice struct {
+	Id       int    `orm:"unique"` //文章ID,主键
+	SubId    int    //主题id
+	UserName string `orm:"size(32);null"`
+	Date     string `orm:"size(32);null"`
+	Title    string `orm:"size(128)"`           //公告标题
+	Expires  bool   `orm:"null;default(false)"` //过期该公告，过期的不会显示出来
+}
+
+func (n *Notice) GetArtiPath() string {
+	return fmt.Sprintf("%s\\n%d_%d", audit.GetCommonStrCfg("commentDirPath"), n.SubId, n.Id)
+}
+
+func (n *Notice) ReadDb() bool {
+	o := orm.NewOrm()
+
+	err := o.Read(n)
+
+	if err == orm.ErrNoRows {
+		return false
+	} else if err == orm.ErrMissPK {
+		return false
+	}
+	return true
+}
+*/
 //主题的表
 type Subject struct {
 	Id         int    `orm:"unique"` //文章ID,主键
 	UserId     int    //作者ID
 	UserName   string `orm:"size(32);null"`
 	Date       string `orm:"size(32);null"`
-	Type       int    `orm:"null;default(0)"`     //类型： 吐槽 话题 求助 炫耀 失望
+	Type       int    `orm:"null;default(0)"`     //类型： 吐槽 话题 求助 炫耀 失望//公告是表示subId
 	Title      string `orm:"size(128)"`           //帖子名称
 	ReadTimes  int    `orm:"null;default(0)"`     //阅读数
 	ReplyTimes int    `orm:"null;default(0)"`     //回复数
 	Disable    bool   `orm:"null;default(false)"` //禁用该帖子
 	Anonymity  bool   `orm:"null;default(false)"` //匿名发表
 	Path       string `orm:"size(64)"`            //文章路径，相对路径
+}
+
+func (s *Subject) GetArtiPath(subId int) string {
+	return fmt.Sprintf("%s/s%d_a%d", audit.ArticleDir, subId, s.Id)
 }
 
 //更新帖子的阅读和评论数量
@@ -469,7 +513,7 @@ func registerDB() {
 	} else {
 		panic("没有配置mysql的认证项...")
 	}
-	orm.RegisterModel(new(User), new(UserAudit), new(PasswdReset))
+	orm.RegisterModel(new(User), new(UserAudit), new(PasswdReset), new(Sub1001))
 	subs := subject.GetMainPageSubjectData()
 	for _, v := range *subs {
 		orm.RegisterModel(GetInstanceById(v.UniqueId))
