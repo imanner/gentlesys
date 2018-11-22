@@ -120,7 +120,7 @@
     {{else}}
         {{range .CommentsList}}
             <hr/>
-            <p><a href="/browse?sid={{.SubId}}&aid={{.Aid}}" target="_blank">版块{{.SubId}}&nbsp&nbsp文章id&nbsp&nbsp{{.Aid}}&nbsp&nbsp</a>第#{{.Commentdata.Id}}楼&nbsp&nbsp
+            <p><a href="/browse?sid={{.SubId}}&aid={{.Aid}}&page={{idtope .Commentdata}}" target="_blank">版块{{.SubId}}&nbsp&nbsp文章id&nbsp&nbsp{{.Aid}}&nbsp&nbsp</a>第#{{.Commentdata.Id}}楼&nbsp&nbsp
             {{if isdeled .Commentdata}}
             <span>回复已被禁用</span>
             {{else}}

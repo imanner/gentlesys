@@ -61,6 +61,15 @@ type CacheObj struct {
 	mutexNotices sync.RWMutex //仅仅保护通知栏
 }
 
+//更新缓存中的禁用状态。不更新数据库
+func (c *CacheObj) UpdateSubjectDisableStatus(v *sqlsys.Subject) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if _, ok := c.elementMap[v.Id]; ok {
+		c.elementMap[v.Id].s.Disable = !c.elementMap[v.Id].s.Disable
+	}
+}
+
 //获取主题的通知
 func (c *CacheObj) GetNotices() *[]*sqlsys.Subject {
 	if c.SubId == 1001 || c.notices.Len() == 0 {

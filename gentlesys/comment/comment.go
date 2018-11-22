@@ -3,6 +3,7 @@ package comment
 //与评论相关的在此。这个文件
 
 import (
+	"fmt"
 	//	"fmt"
 	"gentlesys/store"
 	"os"
@@ -28,19 +29,6 @@ func DelCommentHandlerByPath(filePath string) {
 	commentHandlerManager.Delete(filePath)
 }
 
-//获取帖子的评论数量,不准确，只能在页范围内，不影响索引
-func GetCommentNums(filePath string) int {
-
-	if store.CheckExists(filePath) {
-		fd, _ := os.OpenFile(filePath, os.O_RDWR, 0644)
-		defer fd.Close()
-		if nums, ok := store.GetCurUsedId(fd); ok {
-			return int(nums) + 1
-		}
-	}
-	return 0
-}
-
 //相关的功能在此
 type Comment struct {
 	FilePath string
@@ -49,28 +37,28 @@ type Comment struct {
 }
 
 //读取指定块的评论内容
-func (c *Comment) ReadCommentBlockByIndex(blockNums int) (*store.CommentStory, uint32, bool) {
+func (c *Comment) ReadCommentBlockByIndex(blockNums int, sobj *store.Store) (*store.CommentStory, uint32, bool) {
 
-	if buf, ok := store.GetOnePageContent(c.Fd, blockNums); ok && buf != nil {
+	if buf, ok := sobj.GetOnePageContent(&blockNums); ok && buf != nil {
 		m2 := &store.CommentStory{Commentdata: nil}
 		proto.Unmarshal(*buf, m2) //反序列化
 		return m2, uint32(blockNums), true
 	} else if ok {
 		//也是成功，不过块暂时是空的，新建块后第一次操作
-		return nil, 0, true
+		return nil, uint32(blockNums), true
 	} else {
 		return nil, 0, false
 	}
 }
 
 //读当前的评论块，每个块包含OnePageCommentNum条记录
-func (c *Comment) ReadCurCommentBlock() (*store.CommentStory, uint32, bool) {
-	return c.ReadCommentBlockByIndex(-1)
+func (c *Comment) ReadCurCommentBlock(sobj *store.Store) (*store.CommentStory, uint32, bool) {
+	return c.ReadCommentBlockByIndex(-1, sobj)
 }
 
 //禁用一条评论。
-func (c *Comment) DisableOneComment(pageNums int, id int) (bool, int) {
-	if srcData, _, ok := c.ReadCommentBlockByIndex(pageNums); ok && srcData != nil {
+func (c *Comment) DisableOneComment(pageNums int, id int, sobj *store.Store) (bool, int) {
+	if srcData, _, ok := c.ReadCommentBlockByIndex(pageNums, sobj); ok && srcData != nil {
 		for _, v := range srcData.Commentdata {
 			if int(*v.Id) == id {
 				//找到并屏蔽
@@ -83,7 +71,7 @@ func (c *Comment) DisableOneComment(pageNums int, id int) (bool, int) {
 				if err != nil {
 					panic(err)
 				}
-				return store.UpdateBlockToStore(c.Fd, mdata, pageNums)
+				return sobj.UpdateBlockToStore(mdata, pageNums)
 			}
 		}
 	}
@@ -91,22 +79,25 @@ func (c *Comment) DisableOneComment(pageNums int, id int) (bool, int) {
 }
 
 //增加一条评论，返回最后评论页面index
-func (c *Comment) AddOneComment(data *store.CommentData) (bool, int) {
+func (c *Comment) AddOneComment(data *store.CommentData, sobj *store.Store) (bool, int) {
 
 	var id int32
-	srcData, curBlockNums, ok := c.ReadCurCommentBlock()
+	srcData, curBlockNums, ok := c.ReadCurCommentBlock(sobj)
 	if !ok {
 		return false, 0
 	} else if srcData == nil {
 		//块的第一个元素
 		srcData = &store.CommentStory{}
-		id += int32(curBlockNums) * store.OnePageCommentNum
+		id += int32(curBlockNums) * store.OnePageObjNum
 		data.Id = proto.Int32(id)
 		srcData.Commentdata = []*store.CommentData{data}
+
+		fmt.Printf("1评论id %d %d\n", id, curBlockNums)
 	} else {
 		id = *(srcData.Commentdata[len(srcData.Commentdata)-1].Id) + 1
 		data.Id = proto.Int32(id)
 		srcData.Commentdata = append(srcData.Commentdata, data)
+		fmt.Printf("2评论id %d\n", id)
 	}
 
 	mdata, err := proto.Marshal(srcData)
@@ -115,19 +106,19 @@ func (c *Comment) AddOneComment(data *store.CommentData) (bool, int) {
 	}
 	var isCurMcFull bool = false
 	//如果达到OnePageCommentNum，表示当前满了一页，要开始更新索引到下一页
-	if len(srcData.Commentdata) >= store.OnePageCommentNum {
+	if len(srcData.Commentdata) >= store.OnePageObjNum {
 		isCurMcFull = true
 		//fmt.Printf("full len %d ", len(srcData.Commentdata))
 	}
 	//fmt.Printf("update len %d ", len(srcData.Commentdata))
-	return store.UpdateTailBlockToStore(c.Fd, mdata, isCurMcFull)
+	return sobj.UpdateTailBlockToStore(mdata, isCurMcFull)
 
 }
 
 //获取一页评论
-func (c *Comment) GetOnePageComments(pageNums int) (*[]*store.CommentData, bool) {
+func (c *Comment) GetOnePageComments(pageNums int, sobj *store.Store) (*[]*store.CommentData, bool) {
 
-	if buf, ok := store.GetOnePageContent(c.Fd, pageNums); ok && buf != nil {
+	if buf, ok := sobj.GetOnePageContent(&pageNums); ok && buf != nil {
 		m2 := &store.CommentStory{}
 		proto.Unmarshal(*buf, m2) //反序列化
 		return &m2.Commentdata, true

@@ -436,7 +436,7 @@ func (s *Subject) GetTopicListSortByTime(subId int, nums int) *[]Subject { //单
 	// 获取 QuerySeter 对象，user 为表名
 	qs := o.QueryTable(fmt.Sprintf("sub%d", subId))
 	var posts []orm.ParamsList
-	qs.OrderBy("-id").Limit(nums).ValuesList(&posts, "Id", "UserName", "Date", "Type", "Title", "ReadTimes", "ReplyTimes", "Anonymity")
+	qs.OrderBy("-id").Limit(nums).ValuesList(&posts, "Id", "UserName", "Date", "Type", "Title", "ReadTimes", "ReplyTimes", "Disable", "Anonymity")
 	var ret []Subject = make([]Subject, len(posts))
 	for i, k := range posts {
 		ret[i].Id = int(k[0].(int64))
@@ -446,6 +446,7 @@ func (s *Subject) GetTopicListSortByTime(subId int, nums int) *[]Subject { //单
 		ret[i].Title = k[4].(string)
 		ret[i].ReadTimes = int(k[5].(int64))
 		ret[i].ReplyTimes = int(k[6].(int64))
+		ret[i].Disable = k[7].(bool)
 		ret[i].Anonymity = k[7].(bool)
 		ret[i].Path = fmt.Sprintf("s%d_a%d", subId, ret[i].Id)
 	}

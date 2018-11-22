@@ -10,6 +10,7 @@ import (
 	"github.com/astaxie/beego"
 )
 
+//模板函数，从指针得到被删除字段
 func IsDeled(obj *store.CommentData) bool {
 	if obj.IsDel != nil {
 		return *(obj.IsDel)
@@ -19,10 +20,20 @@ func IsDeled(obj *store.CommentData) bool {
 
 }
 
+func IdToPage(obj *store.CommentData) int {
+	if obj.Id != nil {
+		return int(*obj.Id) / store.OnePageObjNum
+	} else {
+		return 0
+	}
+
+}
+
 func main() {
 
 	//增加模板函数
 	beego.AddFuncMap("isdeled", IsDeled)
+	beego.AddFuncMap("idtope", IdToPage)
 
 	//设置日志
 	logs.SetLogger(logs.AdapterFile, `{"filename":"sys.log","level":4}`)

@@ -17,9 +17,9 @@ type Comment struct {
 }
 
 //禁用一条评论。
-func (c *Comment) DisableOneComment(subId int, aid int, pageNums int, id int) (bool, int) {
+func (c *Comment) DisableOneComment(subId int, aid int, pageNums int, id int, sobj *store.Store) (bool, int) {
 
-	if srcData, ok := c.ReadCommentBlockByIndex(pageNums); ok && srcData != nil {
+	if srcData, ok := c.ReadCommentBlockByIndex(pageNums, sobj); ok && srcData != nil {
 
 		for _, v := range srcData.Usercommentdata {
 			if int(*v.SubId) == subId && int(*v.Aid) == aid && int(*(v.Commentdata.Id)) == id {
@@ -38,7 +38,7 @@ func (c *Comment) DisableOneComment(subId int, aid int, pageNums int, id int) (b
 				}
 				//fmt.Printf("第%d楼用户中心已经删除回复\n", id)
 
-				return store.UpdateBlockToStore(c.Fd, mdata, pageNums)
+				return sobj.UpdateBlockToStore(mdata, pageNums)
 			}
 		}
 		//fmt.Printf("退出第%d楼用户中心已经删除回复\n", id)
@@ -49,9 +49,9 @@ func (c *Comment) DisableOneComment(subId int, aid int, pageNums int, id int) (b
 }
 
 //增加一条发帖，返回最后评论页面index
-func (c *Comment) AddOneUserComment(data *store.UserCommentData) (bool, int) {
+func (c *Comment) AddOneUserComment(data *store.UserCommentData, sobj *store.Store) (bool, int) {
 
-	srcData, ok := c.ReadCurUserCommentBlock()
+	srcData, ok := c.ReadCurUserCommentBlock(sobj)
 	if !ok {
 		return false, 0
 	}
@@ -69,18 +69,18 @@ func (c *Comment) AddOneUserComment(data *store.UserCommentData) (bool, int) {
 		panic(err)
 	}
 	var isCurMcFull bool = false
-	if len(srcData.Usercommentdata) >= store.OnePageCommentNum {
+	if len(srcData.Usercommentdata) >= store.OnePageObjNum {
 		isCurMcFull = true
 	}
 	//fmt.Printf("update len %d ", len(srcData.Commentdata))
-	return store.UpdateTailBlockToStore(c.Fd, mdata, isCurMcFull)
+	return sobj.UpdateTailBlockToStore(mdata, isCurMcFull)
 
 }
 
 //读取指定块的评论内容
-func (c *Comment) ReadCommentBlockByIndex(blockNums int) (*store.UserComments, bool) {
+func (c *Comment) ReadCommentBlockByIndex(blockNums int, sobj *store.Store) (*store.UserComments, bool) {
 
-	if buf, ok := store.GetOnePageContent(c.Fd, blockNums); ok && buf != nil {
+	if buf, ok := sobj.GetOnePageContent(&blockNums); ok && buf != nil {
 		m2 := &store.UserComments{}
 		proto.Unmarshal(*buf, m2) //反序列化
 		return m2, true
@@ -93,14 +93,14 @@ func (c *Comment) ReadCommentBlockByIndex(blockNums int) (*store.UserComments, b
 }
 
 //读当前的用户帖子块，每个块包含OnePageCommentNum条记录
-func (c *Comment) ReadCurUserCommentBlock() (*store.UserComments, bool) {
-	return c.ReadCommentBlockByIndex(-1)
+func (c *Comment) ReadCurUserCommentBlock(sobj *store.Store) (*store.UserComments, bool) {
+	return c.ReadCommentBlockByIndex(-1, sobj)
 }
 
 //获取一页帖子
-func (c *Comment) GetOnePageComment(pageNums int) (*[]*store.UserCommentData, bool) {
+func (c *Comment) GetOnePageComment(pageNums int, sobj *store.Store) (*[]*store.UserCommentData, bool) {
 
-	if buf, ok := store.GetOnePageContent(c.Fd, pageNums); ok && buf != nil {
+	if buf, ok := sobj.GetOnePageContent(&pageNums); ok && buf != nil {
 		m2 := &store.UserComments{}
 		proto.Unmarshal(*buf, m2) //反序列化
 		return &m2.Usercommentdata, true

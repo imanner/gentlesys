@@ -15,9 +15,9 @@ type Topic struct {
 }
 
 //增加一条发帖，返回最后评论页面index
-func (c *Topic) AddOneUserTopic(data *store.UserTopicData) (bool, int) {
+func (c *Topic) AddOneUserTopic(data *store.UserTopicData, sobj *store.Store) (bool, int) {
 
-	srcData, ok := c.ReadCurUserTopicBlock()
+	srcData, ok := c.ReadCurUserTopicBlock(sobj)
 	if !ok {
 		return false, 0
 	} else if srcData == nil {
@@ -32,18 +32,19 @@ func (c *Topic) AddOneUserTopic(data *store.UserTopicData) (bool, int) {
 		panic(err)
 	}
 	var isCurMcFull bool = false
-	if len(srcData.Usertopicdata) >= store.OnePageCommentNum {
+	if len(srcData.Usertopicdata) >= store.OnePageObjNum {
 		isCurMcFull = true
 		//fmt.Printf("full len %d ", len(srcData.Commentdata))
 	}
 	//fmt.Printf("update len %d ", len(srcData.Commentdata))
-	return store.UpdateTailBlockToStore(c.Fd, mdata, isCurMcFull)
+	return sobj.UpdateTailBlockToStore(mdata, isCurMcFull)
 
 }
 
 //读当前的用户帖子块，每个块包含OnePageCommentNum条记录
-func (c *Topic) ReadCurUserTopicBlock() (*store.UserTopics, bool) {
-	if buf, ok := store.GetOnePageContent(c.Fd, -1); ok && buf != nil {
+func (c *Topic) ReadCurUserTopicBlock(sobj *store.Store) (*store.UserTopics, bool) {
+	index := -1
+	if buf, ok := sobj.GetOnePageContent(&index); ok && buf != nil {
 		m2 := &store.UserTopics{}
 		proto.Unmarshal(*buf, m2) //反序列化
 		return m2, true
@@ -55,9 +56,9 @@ func (c *Topic) ReadCurUserTopicBlock() (*store.UserTopics, bool) {
 }
 
 //获取一页帖子
-func (c *Topic) GetOnePageTopics(pageNums int) (*[]*store.UserTopicData, bool) {
+func (c *Topic) GetOnePageTopics(pageNums int, sobj *store.Store) (*[]*store.UserTopicData, bool) {
 
-	if buf, ok := store.GetOnePageContent(c.Fd, pageNums); ok && buf != nil {
+	if buf, ok := sobj.GetOnePageContent(&pageNums); ok && buf != nil {
 		m2 := &store.UserTopics{}
 		proto.Unmarshal(*buf, m2) //反序列化
 		return &m2.Usertopicdata, true
