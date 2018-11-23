@@ -2,7 +2,6 @@ package cachemanager
 
 import (
 	"container/list"
-	"fmt"
 	"gentlesys/global"
 	"gentlesys/models/sqlsys"
 	"gentlesys/subject"
@@ -10,8 +9,6 @@ import (
 )
 
 //一个用来管理缓存的文件，主要是对主题中的页面进行缓存，避免过多频繁查询数据库
-
-const maxNoticesCount = 10
 
 func init() {
 	//注意顺序
@@ -51,14 +48,13 @@ type subjectNode struct {
 	times int             //修改过的次数
 }
 type CacheObj struct {
-	SubId      int                  //所属的主题板块
-	mutex      sync.RWMutex         //用于保护结构体的锁，保护list
-	newCount   int                  //新加元素的计数，为了配合nginx的缓存机制
-	elementMap map[int]*subjectNode //不使用[]，使用map，因为需要使用aid来快速定位到subject
-	accessFlag []int                //页面是否访问过的标识，如果是0，表示没有访问过
-	//notices    []*sqlsys.Subject    //通知栏
-	notices      *list.List   //通知栏
-	mutexNotices sync.RWMutex //仅仅保护通知栏
+	SubId        int                  //所属的主题板块
+	mutex        sync.RWMutex         //用于保护结构体的锁，保护list
+	newCount     int                  //新加元素的计数，为了配合nginx的缓存机制
+	elementMap   map[int]*subjectNode //不使用[]，使用map，因为需要使用aid来快速定位到subject
+	accessFlag   []int                //页面是否访问过的标识，如果是0，表示没有访问过
+	notices      *list.List           //通知栏
+	mutexNotices sync.RWMutex         //仅仅保护通知栏
 }
 
 //更新缓存中的禁用状态。不更新数据库
@@ -96,12 +92,11 @@ func (c *CacheObj) initCacheNoticesList() {
 	nums := subject.GetCurTotalTopicNums(1001)
 	j := 0
 	//notices的type表示其所在的主题id
-	for i := 1; i <= nums; i++ {
+	for i := nums; i >= 1; i-- {
 		if v, ok := CacheSubjectObjMaps[1001].elementMap[i]; ok && v.s.Type == c.SubId {
-			//c.notices[j] = v.s
-			c.notices.PushFront(v.s)
+			c.notices.PushBack(v.s)
 			j++
-			if j >= maxNoticesCount {
+			if j >= global.MaxNoticeShowNums {
 				break
 			}
 		}
@@ -183,7 +178,7 @@ func (c *CacheObj) UpdateNoticeElement(v interface{}) {
 		c.mutexNotices.Lock()
 		defer c.mutexNotices.Unlock()
 		c.notices.PushFront(v)
-		if c.notices.Len() > maxNoticesCount {
+		if c.notices.Len() > global.MaxNoticeShowNums {
 			e := c.notices.Back()
 			c.notices.Remove(e)
 		}
@@ -195,6 +190,9 @@ func (c *CacheObj) AddElement(v interface{}) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
+	if v.(*sqlsys.Subject).Anonymity {
+		v.(*sqlsys.Subject).UserName = "匿名网友"
+	}
 	c.elementMap[v.(*sqlsys.Subject).Id] = &subjectNode{s: v.(*sqlsys.Subject)}
 	c.newCount++
 
@@ -221,7 +219,7 @@ func (c *CacheObj) AddElement(v interface{}) {
 				}
 
 			}
-			fmt.Printf("删除多余元素后，现在元素个数%d\n", len(c.elementMap))
+			//fmt.Printf("删除多余元素后，现在元素个数%d\n", len(c.elementMap))
 		}
 
 	}

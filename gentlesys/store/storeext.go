@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	//"runtime/debug"
 )
 
 /*我需要学硬盘一样，在头部编写一个零号扇区，这个扇区管制这所以的数据。
 每个存储体包含OneConPageNum个页面，每个页面包含OnePageObjNum个对象
-做一个可以自动无限扩展的存储结构
+做一个可以自动无限扩展的存储结构。目前该函数不是线程安全的。并发时，需要外部进行锁的
 */
 func CheckExists(filename string) bool {
 	_, err := os.Stat(filename)
@@ -43,7 +42,7 @@ type MetaData struct {
 const OnePageObjNum = 2                            //一页最多多少个对象。//如果该值越大，那么每次更新评论时的负载就高，我认为20-50比较合适。
 const OneConPageNum = 2                            //一个存储体多少页面
 const OneConObjNum = OnePageObjNum * OneConPageNum //一个存储体多少个对象
-const MaxObjNum = 100000                           //最大对象，可以设置一下
+const MaxObjPages = 10000                          //最大页数，超过该页不能再写入
 
 const ErrMetaId = 0xffffffff
 
@@ -73,19 +72,14 @@ func (s *Store) begin(askPages int) bool {
 				return false //超过当前最大值
 			}
 			//fmt.Printf("操作存储体%s_%d\n", s.Id, askPages/OneConPageNum)
-			//debug.PrintStack()
 			if askPages > 0 {
 				conId := askPages / OneConPageNum //定位到存储体
-				//curPage := askPages % OneConPageNum //定位到多少页
 				curCon := fmt.Sprintf("%s\\%s_%d", s.PathDir, s.Id, conId)
 				mode := os.O_RDWR
 				//如果不存在则创建
 				exist := CheckExists(curCon)
 				if !exist {
 					mode |= os.O_CREATE
-					//fmt.Printf("新建%s\n", curCon)
-				} else {
-					//fmt.Printf("打开%s\n", curCon)
 				}
 				s.Fd, err = os.OpenFile(curCon, mode, 0644)
 				if err != nil {
@@ -109,7 +103,6 @@ func (s *Store) begin(askPages int) bool {
 		}
 		s.Fd = s.FirstFd
 		s.InitMcData()
-		//fmt.Printf("新建%s\n", firstCon)
 	}
 	return true
 }
@@ -168,7 +161,6 @@ func (s *Store) AppendMetaData(mcHead *McDataHead) bool {
 		useId := s.curUserId % OneConPageNum
 		start := Int32Bytes + useId*McDataHeadSize
 
-		//s.Fd.Seek(int64(start), 0)
 		buf := make([]byte, McDataHeadSize)
 
 		binary.LittleEndian.PutUint32(buf, mcHead.Start)
@@ -184,13 +176,11 @@ func (s *Store) AppendMetaData(mcHead *McDataHead) bool {
 func (s *Store) UpdateRelativeMetaData(index int, mcHead *McDataHead) bool {
 	start := Int32Bytes + index*McDataHeadSize
 
-	//s.Fd.Seek(int64(start), 0)
 	buf := make([]byte, McDataHeadSize)
 
 	binary.LittleEndian.PutUint32(buf, mcHead.Start)
 	binary.LittleEndian.PutUint32(buf[Int32Bytes:], mcHead.Length)
 
-	//fmt.Fprintf(s.Fd, "%x", buf)
 	s.Fd.WriteAt(buf, int64(start))
 	return true
 
@@ -254,7 +244,6 @@ func (s *Store) UpdateTailBlockToStore(content []byte, isCurMcFill bool) (bool, 
 		return true, ret
 	}
 	return false, 0
-	//走到该函数，说明尾部是没有满的
 
 }
 
@@ -268,6 +257,7 @@ func (s *Store) GetPageNums() int {
 			return 0
 		}
 		defer s.FirstFd.Close()
+		//只要存在，哪怕现在使用的是0块，都表示存在存储数据。
 		if nums, ok := s.GetCurUsedId(); ok {
 			return int(nums) + 1
 		}

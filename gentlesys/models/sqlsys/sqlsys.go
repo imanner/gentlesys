@@ -447,7 +447,7 @@ func (s *Subject) GetTopicListSortByTime(subId int, nums int) *[]Subject { //单
 		ret[i].ReadTimes = int(k[5].(int64))
 		ret[i].ReplyTimes = int(k[6].(int64))
 		ret[i].Disable = k[7].(bool)
-		ret[i].Anonymity = k[7].(bool)
+		ret[i].Anonymity = k[8].(bool)
 		ret[i].Path = fmt.Sprintf("s%d_a%d", subId, ret[i].Id)
 	}
 	return &ret

@@ -3,8 +3,6 @@ package comment
 //与评论相关的在此。这个文件
 
 import (
-	"fmt"
-	//	"fmt"
 	"gentlesys/store"
 	"os"
 	"sync"
@@ -92,12 +90,12 @@ func (c *Comment) AddOneComment(data *store.CommentData, sobj *store.Store) (boo
 		data.Id = proto.Int32(id)
 		srcData.Commentdata = []*store.CommentData{data}
 
-		fmt.Printf("1评论id %d %d\n", id, curBlockNums)
+		//fmt.Printf("1评论id %d %d\n", id, curBlockNums)
 	} else {
 		id = *(srcData.Commentdata[len(srcData.Commentdata)-1].Id) + 1
 		data.Id = proto.Int32(id)
 		srcData.Commentdata = append(srcData.Commentdata, data)
-		fmt.Printf("2评论id %d\n", id)
+		//fmt.Printf("2评论id %d\n", id)
 	}
 
 	mdata, err := proto.Marshal(srcData)

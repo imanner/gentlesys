@@ -46,12 +46,12 @@
     <p class="crumbs"><a href="/">首页</a> &gt;<a href="{{.HrefSub}}">{{.SubName}}</a>&gt;<a href="/article{{.Args}}">[我要发帖]</a></p>
     <h4 class="text-center">{{.Title}}</h4>
     <p><span class="key-prob"><a href="{{.HrefToSub}}">{{.Type}}</a></span>
-    <span class = "key-prob">作者:<a href="/user?name={{.UserName}}">{{.UserName}}</a></span>
+    <span class = "key-prob"><a href="/user?name={{.UserName}}">{{.UserName}}</a></span>
     <span class = "key-prob">{{.Date}}</span></p>
 
     <div id="story" class="body-css">
         {{str2html .Story}}
-        <h5 class="page-header"></h5>
+        
     </div>
    
     <div class="body-css">
@@ -77,12 +77,23 @@
     <hr />
     <p>没有更多留言了...</p>
     {{end}}
-     </div>
+
+    <ul class="pagination pagination-sm">
+        <li><span class="btn btn-default" role="button">网友回复</span></li>
+    	<li><a href="{{.PrePage}}">&laquo;</a></li>
+    	 {{range .RecordIndexs}}
+        	<li class="{{.IsActive}}"><a href="{{.Ref}}">{{.Title}}</a></li>
+    	{{end}}
+    	<li><a href="{{.NextPage}}">&raquo;</a></li>
+    </ul>
+    </div>
      
     {{if .CanReplay}}
-    <p class="h5">你的回应 ...... (提示：字数不能超过1000)</p>
+    <p class="h5">你的回应 ...... (提示：字数不能超过1000)<label class="btn">
+		<input id="anonymity" type="checkbox" {{.Check}} autocomplete="off"> 匿名发表
+        </label></p>
     <div id="write">
-    <textarea id="text" name="content" rows="10" style="width:100%;"></textarea>
+    <textarea id="text" name="content" rows="8" style="width:100%;"></textarea>
     </div>
    
 	<script>
@@ -112,7 +123,12 @@
 	}
 	function comment() {
 		
-			
+		var any = document.getElementById("anonymity");
+		var anonymity = false;
+		if(any.checked)
+		{
+			anonymity = true;
+		}
 		var text = document.getElementById("text").value;
 		if (text.length < 1) {
 			document.getElementById("botinfo").innerHTML=("错误：评论为空，请输入评论！");
@@ -131,6 +147,7 @@
 		          data:{
 		          	sid_:{{.Sid}},
 					aid_:{{.Aid}},
+					anonymity_:anonymity,
 			        comment_:text,
 			    	},
 		          error:function(jqXHR, textStatus, errorThrown){

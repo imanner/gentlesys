@@ -58,10 +58,10 @@ func (c *Comment) AddOneUserComment(data *store.UserCommentData, sobj *store.Sto
 	if srcData == nil {
 		srcData = &store.UserComments{}
 		srcData.Usercommentdata = []*store.UserCommentData{data}
-		fmt.Printf("这是用户中心块的第一条评论\n")
+		//fmt.Printf("这是用户中心块的第一条评论\n")
 	} else {
 		srcData.Usercommentdata = append(srcData.Usercommentdata, data)
-		fmt.Printf("这不是用户中心块的第一条评论\n")
+		//fmt.Printf("这不是用户中心块的第一条评论\n")
 	}
 
 	mdata, err := proto.Marshal(srcData)
@@ -72,7 +72,7 @@ func (c *Comment) AddOneUserComment(data *store.UserCommentData, sobj *store.Sto
 	if len(srcData.Usercommentdata) >= store.OnePageObjNum {
 		isCurMcFull = true
 	}
-	//fmt.Printf("update len %d ", len(srcData.Commentdata))
+
 	return sobj.UpdateTailBlockToStore(mdata, isCurMcFull)
 
 }
