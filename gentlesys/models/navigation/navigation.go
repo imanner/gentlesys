@@ -22,14 +22,14 @@ var navCommon string
 
 func init() {
 	data := getNavFromCfg()
-	navCommon = global.CreateNav(`views\tpl\nav.tpl`, `views\tpl\tmp\nav.txt`, data)
+	navCommon = global.CreateNav(`views/tpl/nav.tpl`, `views/tpl/tmp/nav.txt`, data)
 	mainNav = getMainPageNavCfg()
 }
 
 func GetNav() string {
 	if navCommon == "" {
 		data := getNavFromCfg()
-		navCommon = global.CreateNav(`views\tpl\nav.tpl`, `views\tpl\tmp\nav.txt`, data)
+		navCommon = global.CreateNav(`views/tpl/nav.tpl`, `views/tpl/tmp/nav.txt`, data)
 	}
 	return navCommon
 }

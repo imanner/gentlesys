@@ -31,13 +31,13 @@ func (c *Topic) AddOneUserTopic(data *store.UserTopicData, sobj *store.Store) (b
 	if err != nil {
 		panic(err)
 	}
-	var isCurMcFull bool = false
-	if len(srcData.Usertopicdata) >= store.OnePageObjNum {
-		isCurMcFull = true
-		//fmt.Printf("full len %d ", len(srcData.Commentdata))
-	}
+	//var isCurMcFull bool = false
+	//if len(srcData.Usertopicdata) >= store.OnePageObjNum {
+	//	isCurMcFull = true
+	//fmt.Printf("full len %d ", len(srcData.Commentdata))
+	//}
 	//fmt.Printf("update len %d ", len(srcData.Commentdata))
-	return sobj.UpdateTailBlockToStore(mdata, isCurMcFull)
+	return sobj.UpdateTailBlockToStore(mdata, len(srcData.Usertopicdata))
 
 }
 

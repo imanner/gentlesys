@@ -102,14 +102,14 @@ func (c *Comment) AddOneComment(data *store.CommentData, sobj *store.Store) (boo
 	if err != nil {
 		panic(err)
 	}
-	var isCurMcFull bool = false
+	//var isCurMcFull bool = false
 	//如果达到OnePageCommentNum，表示当前满了一页，要开始更新索引到下一页
-	if len(srcData.Commentdata) >= store.OnePageObjNum {
-		isCurMcFull = true
-		//fmt.Printf("full len %d ", len(srcData.Commentdata))
-	}
+	//if len(srcData.Commentdata) >= store.OnePageObjNum {
+	//	isCurMcFull = true
+	//fmt.Printf("full len %d ", len(srcData.Commentdata))
+	//}
 	//fmt.Printf("update len %d ", len(srcData.Commentdata))
-	return sobj.UpdateTailBlockToStore(mdata, isCurMcFull)
+	return sobj.UpdateTailBlockToStore(mdata, len(srcData.Commentdata))
 
 }
 

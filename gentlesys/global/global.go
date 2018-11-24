@@ -51,6 +51,9 @@ var CachePagesNums int      //最多显示的导航索引条数
 var FlushNumsLimit int      //首页刷新的值，当首页新增到FlushNumsLimit后，开始刷新
 var AccessTimesLimit int    //首页缓存量超过改值后，开始刷新
 var MaxNoticeShowNums int   //首页最多展示的公告数。
+var IsNginxCache bool
+var NginxAccessLogPath string //nginx的日志存放处
+var NginxAccessFlushTimes int //nginx更新主页（清楚缓存）的时间周期
 
 type RecordIndex struct {
 	Ref      string
@@ -64,6 +67,18 @@ func init() {
 	FlushNumsLimit = GetIntFromCfg("cache::FlushNumsLimit", 30)
 	AccessTimesLimit = GetIntFromCfg("cache::AccessTimesLimit", 100)
 	MaxNoticeShowNums = GetIntFromCfg("cache::MaxNoticeShowNums", 5)
+	isNgnix := GetIntFromCfg("common::cacheMode", 1)
+	if isNgnix == 2 {
+		//使用nginx缓存
+		IsNginxCache = true
+	}
+	NginxAccessLogPath = GetStringFromCfg("nginx::NginxAccessLogPath", "")
+	NginxAccessFlushTimes = GetIntFromCfg("nginx::NginxAccessFlushTimes", 30)
+	//初步认为30分钟刷新一次比较好
+	if NginxAccessFlushTimes >= 60 {
+		NginxAccessFlushTimes = 30
+	}
+
 }
 
 //将总条数转换为页数

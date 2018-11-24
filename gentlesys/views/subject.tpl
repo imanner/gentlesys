@@ -43,7 +43,6 @@
          {{end}}
          </tbody>
        </table>
-       <hr>
 
 	  <ul class="pagination pagination-sm">
         <li><a class="btn btn-default" href="/article{{.Args}}" role="button">发帖</a></li>

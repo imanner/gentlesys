@@ -68,12 +68,12 @@ func (c *Comment) AddOneUserComment(data *store.UserCommentData, sobj *store.Sto
 	if err != nil {
 		panic(err)
 	}
-	var isCurMcFull bool = false
-	if len(srcData.Usercommentdata) >= store.OnePageObjNum {
-		isCurMcFull = true
-	}
+	//var isCurMcFull bool = false
+	//if len(srcData.Usercommentdata) >= store.OnePageObjNum {
+	//	isCurMcFull = true
+	//}
 
-	return sobj.UpdateTailBlockToStore(mdata, isCurMcFull)
+	return sobj.UpdateTailBlockToStore(mdata, len(srcData.Usercommentdata))
 
 }
 

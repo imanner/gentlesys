@@ -226,8 +226,9 @@ func (c *ArticleController) Post() {
 			r := u.UpdateDb()
 			if r {
 				//将返回地址返回给客户端，让其跳转,配合nginx清空缓存
-				//clearcache.ClearPath(fmt.Sprintf("/cure%d", u.ShareId))
-
+				if global.IsNginxCache {
+					cachemanager.ClearNgnixCachePage(fmt.Sprintf("/browse?sid=%d&aid=%d", u.SubId, u.ArtiId))
+				}
 				ret := fmt.Sprintf("[0]/browse?sid=%d&aid=%d", u.SubId, u.ArtiId)
 				c.Ctx.WriteString(ret)
 			} else {
@@ -278,6 +279,16 @@ func (c *ArticleController) Post() {
 			//将返回地址返回给客户端，让其跳转
 			ret := fmt.Sprintf("[0]/browse?sid=%d&aid=%d", u.SubId, r)
 			c.Ctx.WriteString(ret)
+
+			//让subjectx 页面失效
+			if global.IsNginxCache {
+				cachemanager.ClearNgnixCachePage(fmt.Sprintf("/subject%d", u.SubId))
+				//如果发布的是公告1001，还需要让对应版块的主题失效。理论上要让10页缓存全部失效，我们暂时
+				//只失效主题首页
+				if u.SubId == 1001 {
+					cachemanager.ClearNgnixCachePage(fmt.Sprintf("/subject%d", u.Type))
+				}
+			}
 
 			//返回给用户后，再去做一些比较费时的粗活，避免用户得不到响应过久
 			cachemanager.CacheSubjectObjMaps[u.SubId].AddElement(topic)
@@ -544,7 +555,19 @@ func (c *CommentController) Post() {
 
 	if ok, pages := ctobj.AddOneComment(aData, sobj); ok {
 		//跳转到点评页面的最后一页，让用户看到自己的点评
-		c.Ctx.WriteString(fmt.Sprintf("[0]/browse?sid=%d&aid=%d&page=%d", u.SubId, u.ArtiId, pages))
+		if pages > 0 {
+			//清空缓存
+			if global.IsNginxCache {
+				cachemanager.ClearNgnixCachePage(fmt.Sprintf("/browse?sid=%d&aid=%d&page=%d", u.SubId, u.ArtiId, pages))
+			}
+
+			c.Ctx.WriteString(fmt.Sprintf("[0]/browse?sid=%d&aid=%d&page=%d", u.SubId, u.ArtiId, pages))
+		} else {
+			if global.IsNginxCache {
+				cachemanager.ClearNgnixCachePage(fmt.Sprintf("/browse?sid=%d&aid=%d", u.SubId, u.ArtiId))
+			}
+			c.Ctx.WriteString(fmt.Sprintf("[0]/browse?sid=%d&aid=%d", u.SubId, u.ArtiId))
+		}
 
 		userAudit.TlCommentTimes++
 		userAudit.DayCommentTimes++
@@ -944,21 +967,9 @@ type ManageController struct {
 
 //获取用户的评论记录
 func (c *ManageController) GetUserComents(pages int, sobj *store.Store) *[]*store.UserCommentData {
-	//isExist := store.CheckExists(filePath)
-	//if !isExist {
-	//	return nil
-	//}
 
 	ctobj := &userinfo.Comment{}
-
-	///fd, _ := os.OpenFile(filePath, os.O_RDONLY, 0644)
-	//defer fd.Close()
-
-	//ctobj.Fd = fd
 	ret, _ := ctobj.GetOnePageComment(pages, sobj)
-	//for _, k := range *ret {
-	//	fmt.Printf("%v\n", *k.Commentdata)
-	//}
 	return ret
 }
 
@@ -1071,7 +1082,6 @@ func (c *ManageController) Get() {
 
 	v := c.GetSession("id")
 	if v == nil || !audit.IsAdmin(v.(int)) {
-		//logs.Error("Id 是", v.(uint32))
 		c.Abort("401")
 	}
 
@@ -1196,23 +1206,19 @@ func (c *DisableController) Post() {
 		//注意这里是直接更新数据库，没有走缓存，因为帖子禁用启用不会太频繁
 		ok, status := aSubject.UpdateDisableStatus(u.Subid)
 		if ok {
-
 			cachemanager.CacheSubjectObjMaps[u.Subid].UpdateSubjectDisableStatus(aSubject)
 			if status {
 				c.Ctx.WriteString("[0]文章禁用成功！")
-				//fmt.Printf("1 %d %d\n", u.Aid, u.Subid)
 			} else {
 				c.Ctx.WriteString("[0]文章取消禁用成功！")
-				//fmt.Printf("2 %d %d\n", u.Aid, u.Subid)
 			}
-			//clearcache.ClearPath(fmt.Sprintf("/cure%d", numId))
-			//fmt.Printf("3 %d %d\n", u.Aid, u.Subid)
+			if global.IsNginxCache {
+				//刷新nginx缓存
+				cachemanager.ClearNgnixCachePageWithId(u.Subid, u.Aid, 0)
+			}
 		} else {
 			c.Ctx.WriteString("[1]文章设置禁用状态失败！")
-			//fmt.Printf("4 %d %d\n", u.Aid, u.Subid)
 		}
-
-		//fmt.Printf("%d %d\n", u.Aid, u.Subid)
 	}
 }
 
@@ -1315,6 +1321,7 @@ func (c *UserController) Get() {
 	c.TplName = "user.tpl"
 }
 
+//这个是删除评论。
 type RemoveController struct {
 	beego.Controller
 }
@@ -1348,7 +1355,6 @@ func (c *RemoveController) Post() {
 
 		sobj := &store.Store{}
 		sobj.Init(audit.GetCommonStrCfg("commentDirPath"), fmt.Sprintf("s%d_a%d", u.SubId, u.ArtiId))
-		//filePath := fmt.Sprintf("%s\\s%d_a%d", audit.GetCommonStrCfg("commentDirPath"), u.SubId, u.ArtiId)
 
 		key := fmt.Sprintf("%s_%s", u.SubId, u.ArtiId)
 		ccobj := comment.GetCommentHandlerByPath(key)
@@ -1357,39 +1363,21 @@ func (c *RemoveController) Post() {
 		ccobj.Mutex.Lock()
 		defer ccobj.Mutex.Unlock()
 
-		//fmt.Printf("文件路径%s\n", filePath)
-
-		//topicFd, err := os.OpenFile(filePath, os.O_RDWR, 0644)
-		//if err == nil {
-		//	ccobj.Fd = topicFd
-		//	defer topicFd.Close()
-		//} else {
-		//	c.Ctx.WriteString(fmt.Sprintf("[1]sid=%d&aid=%d帖子可能并不存在，请检查", u.SubId, u.ArtiId))
-		//	return
-		//}
-
-		//fmt.Printf("第%d页 第%d楼\n", pagesNum, u.CommentId)
-
 		if ok, code := ccobj.DisableOneComment(pagesNum, u.CommentId, sobj); ok {
+
+			if global.IsNginxCache {
+				//刷新nginx缓存
+				cachemanager.ClearNgnixCachePageWithId(u.SubId, u.ArtiId, pagesNum)
+			}
 			//接着修改用户中心里面的评论管理项目
 			sobj := &store.Store{}
 			sobj.Init(audit.GetCommonStrCfg("userInfoDirPath"), fmt.Sprintf("c%d", u.UserId))
-			//commentFilePath := fmt.Sprintf("%s\\c_%d", audit.GetCommonStrCfg("userInfoDirPath"), u.UserId)
 			curCommentPageNums := sobj.GetPageNums()
 			if curCommentPageNums == 0 || u.CommentPageNum > (curCommentPageNums-1) {
 				c.Ctx.WriteString(fmt.Sprintf("[2]失败：该文章中没有第%d页评论！", u.CommentPageNum))
 				return
 			}
 			ctobj := &userinfo.Comment{}
-
-			//fd, err := os.OpenFile(commentFilePath, os.O_RDWR, 0644)
-			//if err == nil {
-			//	ctobj.Fd = fd
-			//	defer fd.Close()
-			//} else {
-			//	c.Ctx.WriteString(fmt.Sprintf("[3]sid=%d&aid=%d帖子第%d楼回复禁用成功, 但用户中心没有同步禁用状态", u.SubId, u.ArtiId, u.CommentId))
-			//	return
-			//}
 
 			if ret, _ := ctobj.DisableOneComment(u.SubId, u.ArtiId, u.CommentPageNum, u.CommentId, sobj); ret {
 				c.Ctx.WriteString(fmt.Sprintf("[0]sid=%d&aid=%d帖子第%d楼回复禁用成功", u.SubId, u.ArtiId, u.CommentId))

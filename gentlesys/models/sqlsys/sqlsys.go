@@ -283,46 +283,6 @@ func (v *UserAudit) Insert() bool {
 	return false
 }
 
-/*
-func (v *Notice) WriteDb() int {
-	o := orm.NewOrm()
-
-	id, err := o.Insert(v)
-	if err != nil {
-		logs.Error(err, id)
-		return 0
-	}
-
-	return int(id)
-}*/
-//每个主题上面的公告栏
-/*
-type Notice struct {
-	Id       int    `orm:"unique"` //文章ID,主键
-	SubId    int    //主题id
-	UserName string `orm:"size(32);null"`
-	Date     string `orm:"size(32);null"`
-	Title    string `orm:"size(128)"`           //公告标题
-	Expires  bool   `orm:"null;default(false)"` //过期该公告，过期的不会显示出来
-}
-
-func (n *Notice) GetArtiPath() string {
-	return fmt.Sprintf("%s\\n%d_%d", audit.GetCommonStrCfg("commentDirPath"), n.SubId, n.Id)
-}
-
-func (n *Notice) ReadDb() bool {
-	o := orm.NewOrm()
-
-	err := o.Read(n)
-
-	if err == orm.ErrNoRows {
-		return false
-	} else if err == orm.ErrMissPK {
-		return false
-	}
-	return true
-}
-*/
 //主题的表
 type Subject struct {
 	Id         int    `orm:"unique"` //文章ID,主键
@@ -683,4 +643,15 @@ func (v *PasswdReset) InsertByName() bool {
 		return false
 	}
 	return true
+}
+
+//定时每天更新访问量
+func SubjectReadTimesUpdate(sid int, aid int, times int) {
+	//再依次更新帖子的访问量
+	o := orm.NewOrm()
+	table := fmt.Sprintf("sub%d", sid)
+	o.QueryTable(table).Filter("id", aid).Update(orm.Params{
+		"read_times": orm.ColValue(orm.ColAdd, times),
+	})
+	fmt.Printf("sid %d aid %d add %d\n", sid, aid, times)
 }

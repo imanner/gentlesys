@@ -16,6 +16,15 @@ func CheckExists(filename string) bool {
 	return err == nil
 }
 
+const OnePageObjNum = 3                            //一页最多多少个对象。//如果该值越大，那么每次更新评论时的负载就高，我认为20-50比较合适。
+const OneConPageNum = 2                            //一个存储体多少页面
+const OneConObjNum = OnePageObjNum * OneConPageNum //一个存储体多少个对象
+const MaxObjPages = 10000                          //最大页数，超过该页不能再写入
+
+const ErrMetaId = 0x00FFFFFF
+
+const McDataHeadSize = 8 //McDataIndexHead结构体的长度
+
 const MCDATAOFF = 4
 
 const Int32Bytes = 4
@@ -24,9 +33,10 @@ const Int32Bytes = 4
 type Store struct {
 	PathDir   string //文件路径目录
 	Id        string //存储对象的id，比如是用户评论，那么id就使用用户userId等可以唯一标识的前缀
-	curUserId int
-	FirstFd   *os.File //第一个存储体
-	Fd        *os.File //当前操作的存储体,如果当前操作第一个存储体，则与FirstFd相同
+	curUserId int    //当前使用页id
+	//curPageUserNum int      //当前页被使用的空间个数,每页有OnePageObjNum个对象
+	FirstFd *os.File //第一个存储体
+	Fd      *os.File //当前操作的存储体,如果当前操作第一个存储体，则与FirstFd相同
 }
 
 func (s *Store) Init(path string, id string) {
@@ -39,15 +49,6 @@ type MetaData struct {
 	Metas  [OneConPageNum]McDataHead
 }
 
-const OnePageObjNum = 2                            //一页最多多少个对象。//如果该值越大，那么每次更新评论时的负载就高，我认为20-50比较合适。
-const OneConPageNum = 2                            //一个存储体多少页面
-const OneConObjNum = OnePageObjNum * OneConPageNum //一个存储体多少个对象
-const MaxObjPages = 10000                          //最大页数，超过该页不能再写入
-
-const ErrMetaId = 0xffffffff
-
-const McDataHeadSize = 8 //McDataIndexHead结构体的长度
-
 type McDataHead struct {
 	Start  uint32 /*开始偏移量*/
 	Length uint32 /*一块data的长度。OnePageCommentNum条评论共用该空间，目前看是够了。*/
@@ -55,7 +56,7 @@ type McDataHead struct {
 
 //开始
 func (s *Store) begin(askPages int) bool {
-	firstCon := fmt.Sprintf("%s\\%s_0", s.PathDir, s.Id)
+	firstCon := fmt.Sprintf("%s/%s_0", s.PathDir, s.Id)
 	var err error
 	if CheckExists(firstCon) {
 		//如果文件存在，则读取当前使用体
@@ -63,18 +64,19 @@ func (s *Store) begin(askPages int) bool {
 		if err != nil {
 			return false
 		}
-		if pageNums, ok := s.GetCurUsedId(); ok {
-			s.curUserId = int(pageNums)
+		if pageNums, _, ok := s.getCurUsedId(); ok {
+			s.curUserId = pageNums
+			//s.curPageUserNum = curIndex
 			if askPages == -1 {
 				//操作最新页
-				askPages = int(pageNums)
-			} else if askPages > int(pageNums) {
+				askPages = pageNums
+			} else if askPages > pageNums {
 				return false //超过当前最大值
 			}
 			//fmt.Printf("操作存储体%s_%d\n", s.Id, askPages/OneConPageNum)
 			if askPages > 0 {
 				conId := askPages / OneConPageNum //定位到存储体
-				curCon := fmt.Sprintf("%s\\%s_%d", s.PathDir, s.Id, conId)
+				curCon := fmt.Sprintf("%s/%s_%d", s.PathDir, s.Id, conId)
 				mode := os.O_RDWR
 				//如果不存在则创建
 				exist := CheckExists(curCon)
@@ -125,16 +127,27 @@ func (s *Store) InitMcData() {
 	s.Fd.WriteAt(content, cur_offset)
 }
 
+//一个32位的数字，前面24位表示页面，后面8位表示当前页面使用索引
+func getUsedPagesAndCurIndex(v uint32) (usedPage uint32, curIndex uint32) {
+	return (v >> 8), (v & 0x000000FF)
+}
+
+func createUsedPagesAndCurIndex(usedPage uint32, curIndex uint32) uint32 {
+	return (usedPage << 8) | curIndex
+}
+
 //返回当前的元数据
-func (s *Store) GetCurUsedId() (uint32, bool) {
+func (s *Store) getCurUsedId() (int, int, bool) {
 	used := make([]byte, Int32Bytes)
 	n, err := s.FirstFd.ReadAt(used, 0)
 	if n >= Int32Bytes {
-		return binary.LittleEndian.Uint32(used), true
+		v := binary.LittleEndian.Uint32(used)
+		i, j := getUsedPagesAndCurIndex(v)
+		return int(i), int(j), true
 	} else if err == io.EOF {
-		return 0, true
+		return 0, 0, true
 	}
-	return ErrMetaId, false
+	return ErrMetaId, 0, false
 }
 
 //已经定位到了当前的存储块，读取其元数据，index是相对当前存储块而言
@@ -192,7 +205,7 @@ func (s *Store) UpdateRelativeMetaData(index int, mcHead *McDataHead) bool {
 */
 
 //更新当前尾部的一块数据，前面的不能更新，因为写是追加的,故只能更新尾部的。
-func (s *Store) UpdateTailBlockToStore(content []byte, isCurMcFill bool) (bool, int) {
+func (s *Store) UpdateTailBlockToStore(content []byte, elemSize int) (bool, int) {
 
 	if s.begin(-1) {
 		defer s.end()
@@ -220,12 +233,13 @@ func (s *Store) UpdateTailBlockToStore(content []byte, isCurMcFill bool) (bool, 
 
 		//fmt.Printf("更新存储体%s_%d的第%d块\n", s.Id, s.curUserId/OneConPageNum, useId)
 		ret := s.curUserId
-		if isCurMcFill {
+		if elemSize >= OnePageObjNum {
 			//如果满了，则更新useId到下一块
 			//fmt.Printf("存储体%s_%d的第%d块满了\n", s.Id, s.curUserId/OneConPageNum, useId)
 			s.curUserId++
+			v := createUsedPagesAndCurIndex(uint32(s.curUserId), 0)
 			used := make([]byte, Int32Bytes)
-			binary.LittleEndian.PutUint32(used, uint32(s.curUserId))
+			binary.LittleEndian.PutUint32(used, v)
 			s.FirstFd.WriteAt(used, 0)
 
 			//获取在当前体的所在页
@@ -240,6 +254,12 @@ func (s *Store) UpdateTailBlockToStore(content []byte, isCurMcFill bool) (bool, 
 				//fmt.Printf("初始化存储体%s_%d的第%d块\n", s.Id, s.curUserId/OneConPageNum, useId)
 			}
 
+		} else {
+			//没满更新页使用
+			v := createUsedPagesAndCurIndex(uint32(s.curUserId), uint32(elemSize))
+			used := make([]byte, Int32Bytes)
+			binary.LittleEndian.PutUint32(used, v)
+			s.FirstFd.WriteAt(used, 0)
 		}
 		return true, ret
 	}
@@ -248,7 +268,7 @@ func (s *Store) UpdateTailBlockToStore(content []byte, isCurMcFill bool) (bool, 
 }
 
 func (s *Store) GetPageNums() int {
-	firstCon := fmt.Sprintf("%s\\%s_0", s.PathDir, s.Id)
+	firstCon := fmt.Sprintf("%s/%s_0", s.PathDir, s.Id)
 	var err error
 	if CheckExists(firstCon) {
 		//如果文件存在，则读取当前使用体
@@ -258,8 +278,14 @@ func (s *Store) GetPageNums() int {
 		}
 		defer s.FirstFd.Close()
 		//只要存在，哪怕现在使用的是0块，都表示存在存储数据。
-		if nums, ok := s.GetCurUsedId(); ok {
-			return int(nums) + 1
+		if nums, pageUsed, ok := s.getCurUsedId(); ok {
+			if pageUsed == 0 {
+				fmt.Printf("现在实际使用页%d第0条", nums)
+				return nums
+			} else {
+				fmt.Printf("现在实际使用页%d第%d条", nums, pageUsed)
+				return nums + 1
+			}
 		}
 	}
 	return 0

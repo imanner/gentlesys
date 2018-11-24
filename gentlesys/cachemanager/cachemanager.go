@@ -2,9 +2,13 @@ package cachemanager
 
 import (
 	"container/list"
+	"fmt"
 	"gentlesys/global"
+	"gentlesys/models/nginx"
 	"gentlesys/models/sqlsys"
 	"gentlesys/subject"
+	"gentlesys/timework"
+	"net/http"
 	"sync"
 )
 
@@ -13,7 +17,19 @@ import (
 func init() {
 	//注意顺序
 	initCacheSubject()
+
+	//注册定时更新Nginx阅读量
+	if global.IsNginxCache {
+		timework.AddPeriodicMinTask("nginx", func() {
+			nginx.UpdateTopicDayAccessTimes(UpdateCacheSubjectReadTimesWithNginx)
+			nginx.ClearccessTimes()
+			//刷新nginx对应的缓存页面
+			clearNgnixDirtySubjectPages()
+		})
+	}
 }
+
+var dirtySubjectPages map[int]bool
 
 //与板块话题相关的缓存区
 var CacheSubjectObjMaps map[int]*CacheObj
@@ -22,6 +38,10 @@ var CacheSubjectObjMaps map[int]*CacheObj
 func initCacheSubject() {
 	//subNodes := subject.GetMainPageSubjectData()
 	subNodesMap := subject.GetSubjectMap()
+
+	if global.IsNginxCache {
+		dirtySubjectPages = make(map[int]bool, len(*subNodesMap))
+	}
 
 	CacheSubjectObjMaps = make(map[int]*CacheObj)
 	for _, k := range *subNodesMap {
@@ -35,6 +55,12 @@ func initCacheSubject() {
 		}
 		CacheSubjectObjMaps[k.UniqueId].accessFlag = make([]int, global.OnePageElementCount*global.CachePagesNums)
 		CacheSubjectObjMaps[k.UniqueId].InitCacheTopicListFromDb()
+
+		//最开始所有的页面都是干净的
+		if global.IsNginxCache {
+			dirtySubjectPages[k.UniqueId] = false
+		}
+
 	}
 	//再初始化notices
 	for _, k := range *subNodesMap {
@@ -123,6 +149,27 @@ func (c *CacheObj) InitCacheTopicListFromDb() {
 	}
 
 	//atomic.StoreUint32(&mysqlTool.ShareCureIndex, shareList[0].Id)
+}
+
+func UpdateCacheSubjectReadTimesWithNginx(sid int, aid int, times int) {
+	CacheSubjectObjMaps[sid].updateCacheSubjectReadTimesWithNginx(aid, times)
+}
+
+//走到这里，肯定是配置了nginx缓存的
+func (c *CacheObj) updateCacheSubjectReadTimesWithNginx(aid int, times int) {
+	c.mutex.Lock()
+	if _, ok := c.elementMap[aid]; ok {
+		c.elementMap[aid].s.ReadTimes += times
+		c.elementMap[aid].times += times
+		c.mutex.Unlock()
+		fmt.Printf("cacle ...sid %d aid %d times %d\n", c.SubId, aid, times)
+	} else {
+		c.mutex.Unlock()
+		//否则更新数据库
+		sqlsys.SubjectReadTimesUpdate(c.SubId, aid, times)
+		//fmt.Printf("更新数据库...\n")
+	}
+	dirtySubjectPages[c.SubId] = true
 }
 
 func (c *CacheObj) UpdateCacheSubjectTimesField(v *sqlsys.Subject, field ...string) {
@@ -221,26 +268,52 @@ func (c *CacheObj) AddElement(v interface{}) {
 			}
 			//fmt.Printf("删除多余元素后，现在元素个数%d\n", len(c.elementMap))
 		}
-
-	}
-}
-
-/*
-func (c *CacheObj) clearMainPageNginxCache() {
-	//不刷新page=0，因为没有page=0，page=0是主页
-	clearcache.ClearPath("/") // 这个就是page=0
-	for i := 1; i < global.CachePagesNums; i++ {
-		//只有访问过的才清除
-		if c.accessFlag[i] == 1 {
-			clearcache.ClearPath(fmt.Sprintf("/?page=%d", i))
-			c.accessFlag[i] = 0
-			//fmt.Printf("clear cache page %d ...\n", i)
+		//如果启用了nginx缓存，还需要将旧的页面清除
+		if global.IsNginxCache {
+			c.clearMainPageNginxCache()
 		}
 
 	}
-	//fmt.Printf("clear cache ...\n")
 }
-*/
+
+func ClearNgnixCachePage(path string) {
+	fmt.Printf("clear ... %s\n", path)
+	http.Head(fmt.Sprintf("http://127.0.0.1/pre%s", path))
+}
+
+func clearNgnixDirtySubjectPages() {
+	for k, v := range dirtySubjectPages {
+		if v {
+			dirtySubjectPages[k] = false
+			//这里只刷新了主页，而后面的页面都没有刷新，有一定影响页面阅读数的问题。
+			ClearNgnixCachePage(fmt.Sprintf("/subject%d", k))
+		}
+	}
+}
+
+func ClearNgnixCachePageWithId(sid int, aid int, page int) {
+	var url string
+	if page == 0 {
+		url = fmt.Sprintf("http://127.0.0.1/pre/browse?sid=%d&aid=%d", sid, aid)
+	} else {
+		url = fmt.Sprintf("http://127.0.0.1/pre/browse?sid=%d&aid=%d&page=%d", sid, aid, page)
+	}
+	http.Head(url)
+}
+
+func (c *CacheObj) clearMainPageNginxCache() {
+	//不刷新page=0，因为没有page=0，page=0是主页
+	ClearNgnixCachePage(fmt.Sprintf("/subject%d", c.SubId)) // 这个就是page=0
+	for i := 1; i < global.CachePagesNums; i++ {
+		//只有访问过的才清除
+		if c.accessFlag[i] > 0 {
+			ClearNgnixCachePage(fmt.Sprintf("/subject%d?page=%d", c.SubId, i))
+			c.accessFlag[i] = 0
+		}
+
+	}
+}
+
 //读取一页的元素数据。一共有global.CachePagesNums页
 func (c *CacheObj) ReadElementsWithPageNums(pageNums int) []*sqlsys.Subject {
 
