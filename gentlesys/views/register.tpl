@@ -38,7 +38,7 @@
     		<label class="col-md-2 control-label text">输入密码</label>
     		<div class="col-md-4">
     			<input type="password" class="form-control" id="passwd" 
-    				   placeholder="6-12位字母或数字">
+    				   placeholder="6-32位字母或数字">
     		</div>
     	</div>
     	<div class="row form-group">

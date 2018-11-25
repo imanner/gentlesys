@@ -162,7 +162,7 @@ func (c *CacheObj) updateCacheSubjectReadTimesWithNginx(aid int, times int) {
 		c.elementMap[aid].s.ReadTimes += times
 		c.elementMap[aid].times += times
 		c.mutex.Unlock()
-		fmt.Printf("cacle ...sid %d aid %d times %d\n", c.SubId, aid, times)
+		//fmt.Printf("cacle ...sid %d aid %d times %d\n", c.SubId, aid, times)
 	} else {
 		c.mutex.Unlock()
 		//否则更新数据库
@@ -277,7 +277,7 @@ func (c *CacheObj) AddElement(v interface{}) {
 }
 
 func ClearNgnixCachePage(path string) {
-	fmt.Printf("clear ... %s\n", path)
+	//fmt.Printf("clear ... %s\n", path)
 	http.Head(fmt.Sprintf("http://127.0.0.1/pre%s", path))
 }
 

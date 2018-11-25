@@ -54,7 +54,7 @@ type MainController struct {
 	beego.Controller
 }
 
-func (c *MainController) Get() {
+func gotoMain(c *beego.Controller) {
 	c.Data["Title"] = "Gentlesys"
 	c.Data["Navigation"] = navigation.GetNav()
 	pn := navigation.GetMainPageNavData()
@@ -63,6 +63,10 @@ func (c *MainController) Get() {
 	}
 	c.Data["Subject"] = subject.GetMainPageSubjectData()
 	c.TplName = "main.tpl"
+}
+
+func (c *MainController) Get() {
+	gotoMain(&c.Controller)
 }
 
 //主题 subject:id?page=xx
@@ -368,7 +372,7 @@ func (c *BrowseController) showComment(pageIndex int, sid int, aid int) {
 		c.Data["NoMore"] = true
 	}
 
-	//评论超过MaxMetaMcSize页，不能再留言。目前是20*512条
+	//评论超过MaxMetaMcSize页，不能再留言。
 	if curCommentPageNums >= store.MaxObjPages {
 		c.Data["CanReplay"] = false
 	} else {
@@ -607,12 +611,7 @@ func (c *AuthController) Get() {
 		if userName == "" || userName == "游客" {
 			c.Ctx.SetCookie("user", v.(string), beego.BConfig.WebConfig.Session.SessionCookieLifeTime)
 		}
-
-		c.Data["Title"] = "用户登录"
-		c.Data["Navigation"] = navigation.GetNav()
-		c.Data["Pagenav"] = navigation.GetMainPageNavData()
-		c.Data["Subject"] = subject.GetMainPageSubjectData()
-		c.TplName = "main.tpl"
+		gotoMain(&c.Controller)
 
 	}
 
@@ -680,11 +679,15 @@ func (c *RegisterController) Post() {
 			return
 		}
 
+		if u.Mail == "" || strings.IndexByte(u.Mail, '@') == -1 {
+			c.Ctx.WriteString("[2]邮箱格式不对，请修正！这是找回密码的方式")
+			return
+		}
+
 		if u.CheckUserExist() {
 			c.Ctx.WriteString("[1]账号名称已经被注册，请重新换一个")
 			return
 		}
-
 		r := u.WriteDb()
 		if r != 0 {
 
@@ -714,12 +717,13 @@ func (c *QuitController) Get() {
 		c.DestroySession()
 		c.Ctx.SetCookie("user", "游客")
 	}
-
-	c.Data["Title"] = "用户登录"
-	c.Data["Navigation"] = navigation.GetNav()
-	c.Data["Pagenav"] = navigation.GetMainPageNavData()
-	c.Data["Subject"] = subject.GetMainPageSubjectData()
-	c.TplName = "main.tpl"
+	/*
+		c.Data["Title"] = "用户登录"
+		c.Data["Navigation"] = navigation.GetNav()
+		c.Data["Pagenav"] = navigation.GetMainPageNavData()
+		c.Data["Subject"] = subject.GetMainPageSubjectData()
+		c.TplName = "main.tpl"*/
+	gotoMain(&c.Controller)
 }
 
 //找回密码的页面
@@ -869,9 +873,6 @@ func (c *UserInfoController) Get() {
 
 	sobj := &store.Store{}
 	sobj.Init(audit.GetCommonStrCfg("userInfoDirPath"), fmt.Sprintf("u%d", v.(int)))
-
-	//topicFilePath := fmt.Sprintf("%s\\u_%d", audit.GetCommonStrCfg("userInfoDirPath"), v.(int))
-	//curTopicPageNums := comment.GetCommentNums(topicFilePath)
 	curTopicPageNums := sobj.GetPageNums()
 
 	if curTopicPageNums > 0 {

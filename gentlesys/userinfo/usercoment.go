@@ -1,7 +1,6 @@
 package userinfo
 
 import (
-	"fmt"
 	"gentlesys/store"
 	"os"
 
@@ -24,8 +23,6 @@ func (c *Comment) DisableOneComment(subId int, aid int, pageNums int, id int, so
 		for _, v := range srcData.Usercommentdata {
 			if int(*v.SubId) == subId && int(*v.Aid) == aid && int(*(v.Commentdata.Id)) == id {
 				//找到并屏蔽
-				fmt.Printf("读出来的是%v\n", *v)
-				fmt.Printf("读出来的是%v\n", *(v.Commentdata))
 				if v.Commentdata.IsDel != nil && *(v.Commentdata.IsDel) {
 					//已经是禁用的
 

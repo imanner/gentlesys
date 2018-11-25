@@ -24,8 +24,9 @@ type User struct {
 	Passwd  string    `orm:"size(32)" form:"passwd_" valid:"Required;MinSize(6);MaxSize(32)“` //密码
 	Birth   time.Time `orm:"size(12);auto_now_add;type(date)"`                                //注册时间
 	Lastlog time.Time `orm:"size(12);auto_now;null;type(date)"`                               //上次登录时间
-	Fail    int       `orm:"null;"`                                                           //登录失败的次数                                           //连续登录失败的次数，做安全防护
-	Mail    string    `orm:"size(64);default("")" form:"mail_"`                               //邮箱
+	Fail    int       `orm:"null;"`
+	//orm不能随便使用 default(""),不然正常值从mail_过来的，反而无法写入                                //登录失败的次数                                           //连续登录失败的次数，做安全防护
+	Mail string `orm:"size(64)" form:"mail_" valid:"MaxSize(64)"` //邮箱
 }
 
 const ERR_NO_USERNAME = 1         //没有该用户
@@ -653,5 +654,5 @@ func SubjectReadTimesUpdate(sid int, aid int, times int) {
 	o.QueryTable(table).Filter("id", aid).Update(orm.Params{
 		"read_times": orm.ColValue(orm.ColAdd, times),
 	})
-	fmt.Printf("sid %d aid %d add %d\n", sid, aid, times)
+	//fmt.Printf("sid %d aid %d add %d\n", sid, aid, times)
 }

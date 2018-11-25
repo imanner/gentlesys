@@ -16,10 +16,10 @@ func CheckExists(filename string) bool {
 	return err == nil
 }
 
-const OnePageObjNum = 3                            //一页最多多少个对象。//如果该值越大，那么每次更新评论时的负载就高，我认为20-50比较合适。
-const OneConPageNum = 2                            //一个存储体多少页面
+const OnePageObjNum = 20                           //一页最多多少个对象。//如果该值越大，那么每次更新评论时的负载就高，我认为20-50比较合适。
+const OneConPageNum = 32                           //一个存储体多少页面
 const OneConObjNum = OnePageObjNum * OneConPageNum //一个存储体多少个对象
-const MaxObjPages = 10000                          //最大页数，超过该页不能再写入
+const MaxObjPages = 0x00FFFFFF                     //最大页数，超过该页不能再写入
 
 const ErrMetaId = 0x00FFFFFF
 
@@ -280,10 +280,10 @@ func (s *Store) GetPageNums() int {
 		//只要存在，哪怕现在使用的是0块，都表示存在存储数据。
 		if nums, pageUsed, ok := s.getCurUsedId(); ok {
 			if pageUsed == 0 {
-				fmt.Printf("现在实际使用页%d第0条", nums)
+				//fmt.Printf("现在实际使用页%d第0条", nums)
 				return nums
 			} else {
-				fmt.Printf("现在实际使用页%d第%d条", nums, pageUsed)
+				//fmt.Printf("现在实际使用页%d第%d条", nums, pageUsed)
 				return nums + 1
 			}
 		}

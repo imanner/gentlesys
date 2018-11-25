@@ -37,7 +37,7 @@
             <img src="/static/img/n1.png">
             </td>
             <td>
-            <p><span><a href="/browse?sid={{$.Nid}}&aid={{.Id}}"><strong>{{.Title}}</strong></a></span><span><small><a href="/user?name={{.UserName}}">&nbsp;&nbsp;&nbsp;&nbsp;{{.UserName}}</a>&nbsp;&nbsp;•&nbsp;{{.Date}}&nbsp;</small></span></p>
+            <p><span><a href="/browse?sid={{$.Nid}}&aid={{.Id}}"><strong>{{.Title}}</strong></a></span><span><small>&nbsp;&nbsp;&nbsp;&nbsp;<a href="/user?name={{.UserName}}">{{.UserName}}</a>&nbsp;&nbsp;•&nbsp;{{.Date}}&nbsp;</small></span></p>
             </td>
          </tr>
          {{end}}
