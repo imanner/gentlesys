@@ -9,6 +9,7 @@ import (
 	"gentlesys/subject"
 	"gentlesys/timework"
 	"net/http"
+	"sort"
 	"sync"
 )
 
@@ -18,6 +19,13 @@ func init() {
 	//注意顺序
 	initCacheSubject()
 
+	//定时更新热点帖子。
+	timework.AddPeriodicMinTask("hot", func() {
+		for _, v := range CacheSubjectObjMaps {
+			v.initCacheHotTopicListFromDb()
+			//这里还有一个清除缓存
+		}
+	})
 	//注册定时更新Nginx阅读量
 	if global.IsNginxCache {
 		timework.AddPeriodicMinTask("nginx", func() {
@@ -48,13 +56,15 @@ func initCacheSubject() {
 		CacheSubjectObjMaps[k.UniqueId] = new(CacheObj)
 		CacheSubjectObjMaps[k.UniqueId].SubId = k.UniqueId
 		CacheSubjectObjMaps[k.UniqueId].elementMap = make(map[int]*subjectNode)
+		//CacheSubjectObjMaps[k.UniqueId].hotEleMap = make(map[int]*sqlsys.Subject)
+
 		if k.UniqueId != 1001 {
 			//最多10条最新通知，而通知主题本身不需要
 			//CacheSubjectObjMaps[k.UniqueId].notices = make([]*sqlsys.Subject, 10)
 			CacheSubjectObjMaps[k.UniqueId].notices = list.New()
 		}
 		CacheSubjectObjMaps[k.UniqueId].accessFlag = make([]int, global.OnePageElementCount*global.CachePagesNums)
-		CacheSubjectObjMaps[k.UniqueId].InitCacheTopicListFromDb()
+		CacheSubjectObjMaps[k.UniqueId].initCacheTopicListFromDb()
 
 		//最开始所有的页面都是干净的
 		if global.IsNginxCache {
@@ -75,12 +85,15 @@ type subjectNode struct {
 }
 type CacheObj struct {
 	SubId        int                  //所属的主题板块
-	mutex        sync.RWMutex         //用于保护结构体的锁，保护list
+	mutex        sync.RWMutex         //用于保护结构体的锁，保护整个结构
 	newCount     int                  //新加元素的计数，为了配合nginx的缓存机制
 	elementMap   map[int]*subjectNode //不使用[]，使用map，因为需要使用aid来快速定位到subject
 	accessFlag   []int                //页面是否访问过的标识，如果是0，表示没有访问过
 	notices      *list.List           //通知栏
 	mutexNotices sync.RWMutex         //仅仅保护通知栏
+
+	hotMutex    sync.RWMutex      //单独保护hotEleSlice的锁
+	hotEleSlice []*sqlsys.Subject //热帖记录，仅仅缓存热帖
 }
 
 //更新缓存中的禁用状态。不更新数据库
@@ -129,26 +142,100 @@ func (c *CacheObj) initCacheNoticesList() {
 	}
 }
 
+//写一个按照阅读数量排序的的方法
+type subjectSort struct {
+	nodes []*sqlsys.Subject
+}
+
+func (s *subjectSort) Len() int {
+	return len(s.nodes)
+}
+func (s *subjectSort) Swap(i, j int) {
+	s.nodes[i], s.nodes[j] = s.nodes[j], s.nodes[i]
+}
+func (s *subjectSort) Less(i, j int) bool {
+	return s.nodes[i].ReadTimes > s.nodes[j].ReadTimes
+}
+
+//初始化最高热度帖子的函数
+func (c *CacheObj) initCacheHotTopicListFromDb() {
+	//读取热帖
+	tmpMap := make(map[int]bool)
+	//先将elementMap中的20大热帖取出
+	var topicList subjectSort
+	//从elementMap读取帖子到切片
+	c.mutex.RLock()
+	topicList.nodes = make([]*sqlsys.Subject, len(c.elementMap))
+	t := 0
+	for _, v := range c.elementMap {
+		topicList.nodes[t] = v.s
+		t++
+	}
+	c.mutex.RUnlock()
+
+	sort.Sort(&topicList)
+
+	latelyLens := 20
+	if latelyLens > len(topicList.nodes) {
+		latelyLens = len(topicList.nodes)
+	}
+
+	nums := global.OnePageElementCount * global.CacheHotPagesNums
+	//按照帖子热度获取帖子
+	pHotTopicList := (*sqlsys.Subject)(nil).GetTopicListSortByField(c.SubId, "read_times", nums)
+
+	hotLens := latelyLens + len(*pHotTopicList)
+
+	//这里每次直接把hotEleSlice重新赋值
+	c.hotMutex.Lock()
+	defer c.hotMutex.Unlock()
+
+	c.hotEleSlice = make([]*sqlsys.Subject, hotLens)
+
+	//先获取最近的热点帖子
+	j := 0
+	for j = 0; j < latelyLens; j++ {
+		c.hotEleSlice[j] = topicList.nodes[j]
+		tmpMap[topicList.nodes[j].Id] = true
+		//fmt.Printf("%d ", topicList.nodes[j].Id)
+	}
+
+	//再获取历史最高的热点帖子
+	if len(*pHotTopicList) > latelyLens {
+		for i, v := range *pHotTopicList {
+			//去掉重复的
+			if _, exist := tmpMap[v.Id]; !exist {
+				c.hotEleSlice[j] = v
+				j++
+				//处理匿名
+				if (*pHotTopicList)[i].Anonymity {
+					(*pHotTopicList)[i].UserName = "匿名网友"
+				}
+			}
+		}
+	}
+	c.hotEleSlice = c.hotEleSlice[0:j]
+}
+
 //初始化操作时没有加锁，考虑到还在程序初始化期，不会并发访问
-func (c *CacheObj) InitCacheTopicListFromDb() {
-	//var aSubject sqlsys.Subject
+func (c *CacheObj) initCacheTopicListFromDb() {
 	nums := global.OnePageElementCount * global.CachePagesNums
-	pTopicList := (*sqlsys.Subject)(nil).GetTopicListSortByTime(c.SubId, nums)
+	//按照发布时间获取帖子
+	pTopicList := (*sqlsys.Subject)(nil).GetTopicListSortByField(c.SubId, "-id", nums)
 
 	//将数据保存在列表中topicList 是 *[]orm.Params
 	if len(*pTopicList) > 0 {
 		for i, v := range *pTopicList {
-			c.elementMap[v.Id] = &subjectNode{s: &(*pTopicList)[i]}
+			c.elementMap[v.Id] = &subjectNode{s: (*pTopicList)[i]}
 			//处理匿名
 			if (*pTopicList)[i].Anonymity {
 				(*pTopicList)[i].UserName = "匿名网友"
 			}
 		}
-
 		subject.UpdateCurTopicIndex(c.SubId, (*pTopicList)[0].Id)
 	}
-
-	//atomic.StoreUint32(&mysqlTool.ShareCureIndex, shareList[0].Id)
+	//初始化热帖
+	c.initCacheHotTopicListFromDb()
 }
 
 func UpdateCacheSubjectReadTimesWithNginx(sid int, aid int, times int) {
@@ -161,13 +248,18 @@ func (c *CacheObj) updateCacheSubjectReadTimesWithNginx(aid int, times int) {
 	if _, ok := c.elementMap[aid]; ok {
 		c.elementMap[aid].s.ReadTimes += times
 		c.elementMap[aid].times += times
+
+		//及时持久化nginx的访问量
+		if c.elementMap[aid].times > 10 {
+			c.elementMap[aid].s.UpdateSubjectField(c.SubId, "ReadTimes", "ReplyTimes")
+			c.elementMap[aid].times = 0
+		}
+
 		c.mutex.Unlock()
-		//fmt.Printf("cacle ...sid %d aid %d times %d\n", c.SubId, aid, times)
 	} else {
 		c.mutex.Unlock()
 		//否则更新数据库
 		sqlsys.SubjectReadTimesUpdate(c.SubId, aid, times)
-		//fmt.Printf("更新数据库...\n")
 	}
 	dirtySubjectPages[c.SubId] = true
 }
@@ -179,6 +271,13 @@ func (c *CacheObj) UpdateCacheSubjectTimesField(v *sqlsys.Subject, field ...stri
 		c.elementMap[v.Id].s.ReadTimes = v.ReadTimes
 		c.elementMap[v.Id].s.ReplyTimes = v.ReplyTimes
 		c.elementMap[v.Id].times++
+
+		//只持久化变化次数超过10次以上的
+		if c.elementMap[v.Id].times > 10 {
+			c.elementMap[v.Id].s.UpdateSubjectField(c.SubId, "ReadTimes", "ReplyTimes")
+			c.elementMap[v.Id].times = 0
+		}
+
 		c.mutex.Unlock()
 		//fmt.Printf("更新缓存...\n")
 	} else {
@@ -369,4 +468,34 @@ func (c *CacheObj) ReadElementsWithPageNums(pageNums int) []*sqlsys.Subject {
 	}
 
 	return ret
+}
+
+func (c *CacheObj) GetHotTopicCount() int {
+	c.hotMutex.RLock()
+	defer c.hotMutex.RUnlock()
+	return len(c.hotEleSlice)
+}
+
+//读取热点帖子
+func (c *CacheObj) ReadHotWithPageNums(pageNums int) ([]*sqlsys.Subject, int) {
+
+	//多半页的最近热帖，所以一共最多有global.CacheHotPagesNums+1页
+	if pageNums < 0 || pageNums > global.CacheHotPagesNums {
+		return nil, 0
+	}
+
+	start := pageNums * global.OnePageElementCount
+
+	c.hotMutex.RLock()
+	defer c.hotMutex.RUnlock()
+
+	if start > len(c.hotEleSlice) {
+		return nil, 0
+	}
+	end := (pageNums + 1) * global.OnePageElementCount
+	if end > len(c.hotEleSlice) {
+		end = len(c.hotEleSlice)
+	}
+	//返回原始切片的一部分，原始切片里面存放的是地址，该地址值不会主动释放，故不会访问到空指针问题
+	return c.hotEleSlice[start:end], len(c.hotEleSlice)
 }

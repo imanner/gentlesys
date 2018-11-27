@@ -389,7 +389,34 @@ func (v *Subject) GetTopicListPageNum(subId int, pages int) *[]orm.Params {
 	return &posts
 }
 
+//从subx主题表读取一定数量的帖子，按照热度即阅读数排名
+func (s *Subject) GetTopicListSortByField(subId int, field string, nums int) *[]*Subject { //单纯的按照发布时间先后排序
+
+	o := orm.NewOrm()
+
+	// 获取 QuerySeter 对象，user 为表名
+	qs := o.QueryTable(fmt.Sprintf("sub%d", subId))
+	var posts []orm.ParamsList
+	qs.OrderBy(field).Limit(nums).ValuesList(&posts, "Id", "UserName", "Date", "Type", "Title", "ReadTimes", "ReplyTimes", "Disable", "Anonymity")
+	var ret []*Subject = make([]*Subject, len(posts))
+	for i, k := range posts {
+		ret[i] = &Subject{}
+		ret[i].Id = int(k[0].(int64))
+		ret[i].UserName = k[1].(string)
+		ret[i].Date = k[2].(string)
+		ret[i].Type = int(k[3].(int64))
+		ret[i].Title = k[4].(string)
+		ret[i].ReadTimes = int(k[5].(int64))
+		ret[i].ReplyTimes = int(k[6].(int64))
+		ret[i].Disable = k[7].(bool)
+		ret[i].Anonymity = k[8].(bool)
+		ret[i].Path = fmt.Sprintf("s%d_a%d", subId, ret[i].Id)
+	}
+	return &ret
+}
+
 //从subx主题表中倒序读取一定数量的帖子
+/*
 func (s *Subject) GetTopicListSortByTime(subId int, nums int) *[]Subject { //单纯的按照发布时间先后排序
 
 	o := orm.NewOrm()
@@ -412,7 +439,7 @@ func (s *Subject) GetTopicListSortByTime(subId int, nums int) *[]Subject { //单
 		ret[i].Path = fmt.Sprintf("s%d_a%d", subId, ret[i].Id)
 	}
 	return &ret
-}
+}*/
 
 //从subx主题表中根据字段名称查找帖子,从偏移offset开始
 func (s *Subject) GetTopicListByFiledWithOffset(filed string, value string, subId int, offset int, limits int) (*[]Subject, int) { //单纯的按照发布时间先后排序

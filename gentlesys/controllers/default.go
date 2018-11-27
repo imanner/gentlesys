@@ -74,6 +74,67 @@ type SubjectController struct {
 	beego.Controller
 }
 
+func (c *SubjectController) getHotTopics(sid int, pageIndex int) {
+
+	urlPrex := fmt.Sprintf("subject%d", sid)
+	records, prev, next := global.CreateNavIndexByNums(pageIndex, cachemanager.CacheSubjectObjMaps[sid].GetHotTopicCount(), urlPrex, "?hot")
+	if records != nil {
+		c.Data["RecordIndexs"] = records
+		c.Data["PrePage"] = prev
+		c.Data["NextPage"] = next
+	}
+
+	if pageIndex >= 0 && pageIndex <= global.CacheHotPagesNums {
+		topics, _ := cachemanager.CacheSubjectObjMaps[sid].ReadHotWithPageNums(pageIndex)
+		if topics == nil || len(topics) == 0 {
+			c.Data["NoMore"] = true
+			c.Data["TotalRef"] = fmt.Sprintf("/subject%d", sid)
+			c.Data["HotRef"] = "#"
+		} else {
+			c.Data["Topic"] = topics
+			c.Data["TotalRef"] = fmt.Sprintf("/subject%d", sid)
+			c.Data["HotRef"] = "#"
+		}
+	} else {
+		c.Data["NoMore"] = true
+	}
+}
+
+func (c *SubjectController) getTolalTopics(sid int) {
+	//0表示回到首页
+	pageIndex, _ := c.GetInt("page", 0)
+
+	urlPrex := fmt.Sprintf("subject%d", sid)
+	records, prev, next := global.CreateNavIndexByNums(pageIndex, subject.GetCurTotalTopicNums(sid), urlPrex, "?page")
+	if records != nil {
+		c.Data["RecordIndexs"] = records
+		c.Data["PrePage"] = prev
+		c.Data["NextPage"] = next
+	}
+
+	if pageIndex >= 0 && pageIndex < global.CachePagesNums {
+		//如果是首页，首页特殊处理，因为首页可能实时发帖更新
+		topics := cachemanager.CacheSubjectObjMaps[sid].ReadElementsWithPageNums(pageIndex)
+		if topics == nil || len(topics) == 0 {
+			c.Data["NoMore"] = true
+			c.Data["TotalRef"] = "#"
+			c.Data["HotRef"] = fmt.Sprintf("/subject%d?hot=0", sid)
+		} else {
+			c.Data["Topic"] = topics
+			c.Data["TotalRef"] = "#"
+			c.Data["HotRef"] = fmt.Sprintf("/subject%d?hot=0", sid)
+		}
+	} else {
+		//其他页呢，可以走ngnix的缓存页面，可以直接从数据库查询
+		topics := (*sqlsys.Subject)(nil).GetTopicListPageNum(sid, pageIndex)
+		if topics == nil || len(*topics) == 0 {
+			c.Data["NoMore"] = true
+		} else {
+			c.Data["Topic"] = topics
+		}
+	}
+}
+
 func (c *SubjectController) Get() {
 
 	sid := c.Ctx.Input.Param(":id")
@@ -84,18 +145,6 @@ func (c *SubjectController) Get() {
 		logs.Error(err, sid)
 		c.Abort("401")
 		return
-	}
-
-	//0表示回到首页
-	pageIndex, _ := c.GetInt("page", 0)
-
-	urlPrex := fmt.Sprintf("subject%s", sid)
-
-	records, prev, next := global.CreateNavIndexByNums(pageIndex, subject.GetCurTotalTopicNums(numId), urlPrex, "?page")
-	if records != nil {
-		c.Data["RecordIndexs"] = records
-		c.Data["PrePage"] = prev
-		c.Data["NextPage"] = next
 	}
 
 	subobj := subject.GetSubjectById(numId)
@@ -109,28 +158,21 @@ func (c *SubjectController) Get() {
 	//公告
 	notices := cachemanager.CacheSubjectObjMaps[numId].GetNotices()
 	if notices != nil && len(*notices) > 0 {
+		c.Data["ExistNotice"] = true
 		c.Data["Notice"] = notices
 		c.Data["Nid"] = 1001
-
+		c.Data["NoticeRef"] = "/subject1001"
 	}
 
-	if pageIndex >= 0 && pageIndex < global.CachePagesNums {
-		//如果是首页，首页特殊处理，因为首页可能实时发帖更新
-		topics := cachemanager.CacheSubjectObjMaps[numId].ReadElementsWithPageNums(pageIndex)
-		if topics == nil || len(topics) == 0 {
-			c.Data["NoMore"] = true
-		} else {
-			c.Data["Topic"] = topics
-		}
+	hotIndex, err := c.GetInt("hot", -1)
+	//是访问hot
+	if err == nil && hotIndex != -1 {
+		c.getHotTopics(numId, hotIndex)
 	} else {
-		//其他页呢，可以走ngnix的缓存页面，可以直接从数据库查询
-		topics := (*sqlsys.Subject)(nil).GetTopicListPageNum(numId, pageIndex)
-		if topics == nil || len(*topics) == 0 {
-			c.Data["NoMore"] = true
-		} else {
-			c.Data["Topic"] = topics
-		}
+		//访问的是全部主页
+		c.getTolalTopics(numId)
 	}
+
 	c.TplName = "subject.tpl"
 }
 

@@ -9,6 +9,10 @@
    <script src="http://apps.bdimg.com/libs/jquery/2.1.4/jquery.min.js"></script>
    <script src="http://apps.bdimg.com/libs/bootstrap/3.2.0/js/bootstrap.min.js"></script>
    <style>
+   .ul-css{
+    	margin-top:0px;
+    	margin-bottom:0px;
+   }
 	.body-css {
 		padding-top:55px;
 	}
@@ -20,16 +24,13 @@
 
 <body class="body-css">
 {{str2html .Navigation}}
-
 <div class="container-fluid">
-
-	<div class="row">
-	<div class="col-lg-10 col-lg-offset-1">
-      
-	  <div class="root-css col-lg-8">
+	  <div class="row root-css col-lg-7 col-lg-offset-1">
       <p class="crumbs"><a href="/">首页</a> &gt;<a href="/article{{.Args}}">[我要发帖]</a></p>
-      
+
+       {{if .ExistNotice}}
        <table class="table table-condensed"> 
+       <caption><h5><a href="{{.NoticeRef}}"><strong>版区公告</strong></a></h5></caption>
         <tbody>
          {{range .Notice}}
          <tr>
@@ -43,8 +44,9 @@
          {{end}}
          </tbody>
        </table>
-
-	  <ul class="pagination pagination-sm">
+       {{end}}
+       
+      <ul class="pagination pagination-sm pull-right ul-css">
         <li><a class="btn btn-default" href="/article{{.Args}}" role="button">发帖</a></li>
     	<li><a href="{{.PrePage}}">&laquo;</a></li>
     	 {{range .RecordIndexs}}
@@ -52,7 +54,15 @@
     	{{end}}
     	<li><a href="{{.NextPage}}">&raquo;</a></li>
       </ul>
-      
+
+      </div>
+
+      <div class="row root-css col-lg-7 col-lg-offset-1">
+      <ul class="nav nav-pills">
+      <li><a href="{{.TotalRef}}">全部</a></li>
+      <li><a href="{{.HotRef}}">热帖</a></li>
+      </ul>
+  
 	  <table class="table table-condensed"> 
         <tbody>
          {{range .Topic}}
@@ -68,12 +78,13 @@
          {{end}}
          </tbody>
        </table>
+        
        {{if .NoMore}}
         <hr />
         <p>没有更多帖子了...</p>
        {{end}}
 
-       <ul class="pagination pagination-sm">
+       <ul class="pagination pagination-sm ul-css">
         <li><a class="btn btn-default" href="/article{{.Args}}" role="button">发帖</a></li>
     	<li><a href="{{.PrePage}}">&laquo;</a></li>
     	 {{range .RecordIndexs}}
@@ -82,9 +93,7 @@
     	<li><a href="{{.NextPage}}">&raquo;</a></li>
       </ul>
 	  </div>
-			
-	</div>
-	</div>
+
 </div>
 </body>
 
