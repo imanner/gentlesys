@@ -203,8 +203,8 @@ func (c *CacheObj) initCacheHotTopicListFromDb() {
 	//再获取历史最高的热点帖子
 	if len(*pHotTopicList) > latelyLens {
 		for i, v := range *pHotTopicList {
-			//去掉重复的
-			if _, exist := tmpMap[v.Id]; !exist {
+			//去掉重复的和禁止的
+			if _, exist := tmpMap[v.Id]; !exist && !v.Disable {
 				c.hotEleSlice[j] = v
 				j++
 				//处理匿名
@@ -226,10 +226,12 @@ func (c *CacheObj) initCacheTopicListFromDb() {
 	//将数据保存在列表中topicList 是 *[]orm.Params
 	if len(*pTopicList) > 0 {
 		for i, v := range *pTopicList {
-			c.elementMap[v.Id] = &subjectNode{s: (*pTopicList)[i]}
-			//处理匿名
-			if (*pTopicList)[i].Anonymity {
-				(*pTopicList)[i].UserName = "匿名网友"
+			if !v.Disable {
+				c.elementMap[v.Id] = &subjectNode{s: (*pTopicList)[i]}
+				//处理匿名
+				if (*pTopicList)[i].Anonymity {
+					(*pTopicList)[i].UserName = "匿名网友"
+				}
 			}
 		}
 		subject.UpdateCurTopicIndex(c.SubId, (*pTopicList)[0].Id)
@@ -467,7 +469,7 @@ func (c *CacheObj) ReadElementsWithPageNums(pageNums int) []*sqlsys.Subject {
 		go c.saveCacheElement()
 	}
 
-	return ret
+	return ret[:j]
 }
 
 func (c *CacheObj) GetHotTopicCount() int {
