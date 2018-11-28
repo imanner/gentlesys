@@ -44,12 +44,24 @@
           <td>
             <p id="info"><strong>提示:一切正常{{.Info}}</strong></p>
             <p><strong>以下内容仅管理员可见</strong></p>
+            <p><span><strong>用户名称: </strong>{{.Name}}</span><span><strong> ID: </strong>{{.UserId}}</span></p>
+            <p><span><strong>是否版主: {{.SubMt}}</strong></span></p>
             <p><strong>禁用或解禁: </strong><button type="submit" class="btn-xs btn-warning" onclick="setings(1)">点击设置</button></p>
             <p><strong>提升等级：</strong><button type="submit" class="btn-xs btn-warning" onclick="setings(2)">点击提升</button></p>
+            <p><span><strong>设为版主请选择版块: </strong></span><span><select id="sType">
+            {{range .SubType}}
+            <option value="{{.UniqueId}}">{{.Name}}</option>
+            {{end}}
+            </select> </span><button type="submit" class="btn-xs btn-warning" onclick="setings(3)">设为版主</button> <button type="submit" class="btn-xs btn-warning" onclick="setings(4)">取消版主</button></p>
           </td>
          </tr>
          <script>
          function setings(type) {
+         var subId
+         if (type == 3 || type == 4){
+		 	var options=$("#sType option:selected");
+			subId = options.val(); 
+         }
          $.ajax({
 	          async:true,
 	          cache:false,
@@ -59,6 +71,7 @@
 	          data:{
 	          	userId_:{{.UserId}},
 	          	type_:type,
+	          	subId_:subId,
 		    	},
 	          error:function(jqXHR, textStatus, errorThrown){
 	            if(textStatus=="timeout"){

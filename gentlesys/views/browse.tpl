@@ -10,24 +10,13 @@
    <script src="http://apps.bdimg.com/libs/bootstrap/3.2.0/js/bootstrap.min.js"></script>
    <script src="/static/bootsp/edt/kindeditor-all-min.js"></script>
    <script src="/static/bootsp/edt/lang/zh-CN.js"></script>
-
    <style>
-   	.h5 {
-   	color:#009900;
-   	}
 	h4 {
     color:#4876FF;
     }
-	.table-css {
-		text-align:center;
-	    color:#000033;
-	}
 	.key-prob {
 		color:#0000CC;
 		padding-right:2px;
-	}
-	.title-css {
-	float: left;
 	}
 	.comment-css {
 	background-color:#e0ffff;

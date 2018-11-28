@@ -66,6 +66,7 @@
     <option value="1">按用户名查找帖子</option>
     <option value="2">按日期时间查找帖子</option>
     <option value="3">按用户名查找回复</option>
+    <option value="4">按用户名查找用户</option>
     </select>
     </div>
     <input id="intext" type="text" class="form-control" placeholder="请输入用户名...">
@@ -88,6 +89,7 @@
     	<li><a href="{{.NextPage}}">&raquo;</a></li>
     </ul>
     {{if .IsTopic}}
+        <p>显示结果所在版块 [{{.SubName}}]</p>
         {{range .TopicsList}}
             <p>时间{{.Date}}&nbsp&nbsp作者&nbsp&nbsp{{.UserName}}&nbsp&nbsp[标题]&nbsp&nbsp<a href="/browse?sid={{$.Sid}}&aid={{.Id}}" target="_blank">{{.Title}}(阅读次数{{.ReadTimes}}) </a>&nbsp&nbsp&nbsp&nbsp[禁用与否]{{.Disable}}&nbsp&nbsp&nbsp&nbsp <button type="submit" class="btn-xs btn-warning" onclick="disable({{$.Sid}},{{.Id}})">(禁贴或开启)</button></p>
         {{end}}
@@ -184,7 +186,7 @@
 					return
 				}
 			}
-			else if (type == 3) {
+			else if (type == 3 || type == 4) {
 				if (key.length < 3) {
 					$("#intext").attr("placeholder","没有输入用户名称")
 					return

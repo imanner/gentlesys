@@ -203,12 +203,12 @@ func (c *ArticleController) Get() {
 		return
 	}
 
-	//只有管理者才能发1001公告
+	//只有管理者或者版主才能发1001公告
 	if sid == 1001 {
 		id := c.GetSession("id")
-		if id == nil || !audit.IsAdmin(id.(int)) {
+		if id == nil || (!audit.IsAdmin(id.(int)) && (-1 == sqlsys.IsSubMaster(id.(int)))) {
 			//非管理员不能发布公告
-			c.Ctx.WriteString("[4]没有权限，只有管理者才能发布公告！")
+			c.Ctx.WriteString("[4]没有权限，只有版主才能发布公告！")
 			return
 		}
 		c.Data["Navigation"] = navigation.GetNav()
@@ -253,7 +253,7 @@ func (c *ArticleController) Post() {
 		}
 
 		//禁止非管理员提交到公告区
-		if u.SubId == 1001 && !audit.IsAdmin(v.(int)) {
+		if u.SubId == 1001 && (!audit.IsAdmin(v.(int)) && (-1 == sqlsys.IsSubMaster(v.(int)))) {
 			c.Ctx.WriteString("[3]禁止：只有管理员才能发布公告。")
 			return
 		}
@@ -395,18 +395,18 @@ func (c *BrowseController) showComment(pageIndex int, sid int, aid int) {
 			pageIndex = 0
 		}
 
-		records, prev, next := global.CreateNavIndexByPages(pageIndex, curCommentPageNums, urlPrex, "&page")
-		if records != nil {
-			c.Data["RecordIndexs"] = records
-			c.Data["PrePage"] = prev
-			c.Data["NextPage"] = next
-		}
-
 		//获取评论
 		comments := c.getComment(pageIndex, sid, aid, sobj)
 		if comments != nil && len(*comments) > 0 {
 			c.Data["Comments"] = comments
 			c.Data["NoMore"] = false
+
+			records, prev, next := global.CreateNavIndexByPages(pageIndex, curCommentPageNums, urlPrex, "&page")
+			if records != nil {
+				c.Data["RecordIndexs"] = records
+				c.Data["PrePage"] = prev
+				c.Data["NextPage"] = next
+			}
 		} else {
 			c.Data["NoMore"] = true
 		}
@@ -1124,7 +1124,8 @@ func (c *ManageController) GetCommentsByName(name string, pageIndex int) {
 func (c *ManageController) Get() {
 
 	v := c.GetSession("id")
-	if v == nil || !audit.IsAdmin(v.(int)) {
+	//即不是版主，也不是管理员
+	if v == nil || (!audit.IsAdmin(v.(int)) && (-1 == sqlsys.IsSubMaster(v.(int)))) {
 		c.Abort("401")
 	}
 
@@ -1155,6 +1156,8 @@ func (c *ManageController) Get() {
 		return
 	}
 
+	c.Data["SubName"] = subject.GetSubjectById(sid).Name
+
 	name = c.GetString("name", "")
 	if name != "" {
 		c.GetTopicsByName(name, sid, pageIndex)
@@ -1177,7 +1180,7 @@ type ManageData struct {
 
 func (c *ManageController) Post() {
 	v := c.GetSession("id")
-	if v == nil || !audit.IsAdmin(v.(int)) {
+	if v == nil || (!audit.IsAdmin(v.(int)) && (-1 == sqlsys.IsSubMaster(v.(int)))) {
 		c.Ctx.WriteString("[1]没有权限")
 		return
 	}
@@ -1199,15 +1202,21 @@ func (c *ManageController) Post() {
 		c.Data["Navigation"] = navigation.GetNav()
 		c.Data["SubType"] = subject.GetMainPageSubjectData()
 
-		if u.Type == 1 {
+		switch u.Type {
+		case 1:
 			ret := fmt.Sprintf("[0]/%s?sid=%d&name=%s", audit.GetCommonStrCfg("managerurl"), u.Subid, u.Key)
 			c.Ctx.WriteString(ret)
-		} else if u.Type == 2 {
+		case 2:
 			ret := fmt.Sprintf("[0]/%s?sid=%d&date=%s", audit.GetCommonStrCfg("managerurl"), u.Subid, u.Key)
 			c.Ctx.WriteString(ret)
-		} else if u.Type == 3 {
+		case 3:
 			ret := fmt.Sprintf("[0]/%s?cname=%s", audit.GetCommonStrCfg("managerurl"), u.Key)
 			c.Ctx.WriteString(ret)
+		case 4:
+			ret := fmt.Sprintf("[0]/user?name=%s&admin=y", u.Key)
+			c.Ctx.WriteString(ret)
+		default:
+			c.Ctx.WriteString("[1]错误的查找类型")
 		}
 	}
 }
@@ -1225,7 +1234,7 @@ type DisableData struct {
 func (c *DisableController) Post() {
 
 	v := c.GetSession("id")
-	if v == nil || !audit.IsAdmin(v.(int)) {
+	if v == nil || (!audit.IsAdmin(v.(int)) && (-1 == sqlsys.IsSubMaster(v.(int)))) {
 		c.Ctx.WriteString("[1]没有权限")
 		return
 	}
@@ -1241,6 +1250,12 @@ func (c *DisableController) Post() {
 		if !subject.IsSubjectIdExist(u.Subid) {
 			logs.Error("DisableController err", u.Subid)
 			c.Ctx.WriteString("[1]找不到对应的帖子")
+			return
+		}
+
+		//检查权限
+		if !audit.IsAdmin(v.(int)) && (u.Subid != sqlsys.IsSubMaster(v.(int))) {
+			c.Ctx.WriteString(fmt.Sprintf("[2]权限不足-你没有[%s]版块的管理权限", subject.GetSubjectById(u.Subid).Name))
 			return
 		}
 
@@ -1273,11 +1288,12 @@ type UserController struct {
 type userMsg struct {
 	UserId int `form:"userId_" valid:"Required“`
 	Type   int `form:"type_" valid:"Required“`
+	SubId  int `form:"subId_"`
 }
 
 func (c *UserController) Post() {
 	v := c.GetSession("id")
-	if v == nil || !audit.IsAdmin(v.(int)) {
+	if v == nil || (!audit.IsAdmin(v.(int)) && (-1 == sqlsys.IsSubMaster(v.(int)))) {
 		c.Ctx.WriteString("[1]没有权限")
 		return
 	}
@@ -1293,7 +1309,8 @@ func (c *UserController) Post() {
 		aUserAu := &sqlsys.UserAudit{UserId: u.UserId}
 
 		if aUserAu.ReadDb() {
-			if u.Type == 1 {
+			switch u.Type {
+			case 1:
 				//禁言
 				aUserAu.Could = !aUserAu.Could
 				aUserAu.UpdataCould()
@@ -1302,12 +1319,57 @@ func (c *UserController) Post() {
 				} else {
 					c.Ctx.WriteString("[0]取消禁言用户成功")
 				}
-
-			} else if u.Type == 2 {
+			case 2:
 				//提升等级
 				aUserAu.Level++
 				aUserAu.UpdataLevel()
 				c.Ctx.WriteString("[0]提升用户等级成功")
+			case 3:
+				//设置版主
+				if audit.IsAdmin(v.(int)) { //只有管理员有权限
+					if subject.IsSubjectIdExist(u.SubId) {
+						subms := &sqlsys.SubjectMaster{SubId: u.SubId}
+						if subms.ReadDb() {
+							sid := sqlsys.IsSubMaster(u.UserId)
+							if -1 == sid {
+								subms.Masters = fmt.Sprintf("%s%d,", subms.Masters, u.UserId)
+								if subms.UpdataMasters() {
+									sqlsys.SetUserIsSubMaster(u.UserId, u.SubId, true)
+									c.Ctx.WriteString(fmt.Sprintf("[0]设置用户id %d 为 [%s] 版主成功", u.UserId, subject.GetSubjectById(u.SubId).Name))
+								}
+							} else {
+								c.Ctx.WriteString(fmt.Sprintf("[1]用户id %d 已经是 [%s] 版主,一个用户不可是多个版块版主！", u.UserId, subject.GetSubjectById(sid).Name))
+							}
+						}
+					} else {
+						c.Ctx.WriteString(fmt.Sprintf("[1]设置用户id %d 为版主失败", u.UserId))
+					}
+				} else {
+					c.Ctx.WriteString(fmt.Sprintf("[1]没有权限-设置用户id %d 为版主失败", u.UserId))
+				}
+			case 4:
+				//取消版主
+				if audit.IsAdmin(v.(int)) { //只有管理员有权限
+					if subject.IsSubjectIdExist(u.SubId) {
+						if !sqlsys.GetUserIsSubMaster(u.UserId, u.SubId) {
+							c.Ctx.WriteString(fmt.Sprintf("[1]用户id %d 原本不是 %s 版主,不需要取消", u.UserId, subject.GetSubjectById(u.SubId).Name))
+						} else {
+							sqlsys.SetUserIsSubMaster(u.UserId, u.SubId, false)
+							subms := &sqlsys.SubjectMaster{SubId: u.SubId}
+							if subms.ReadDb() {
+								subms.Masters = strings.Replace(subms.Masters, fmt.Sprintf("%d,", u.UserId), "", 1)
+								if subms.UpdataMasters() {
+									c.Ctx.WriteString(fmt.Sprintf("[0]取消用户id %d 的 [%s] 版主身份成功", u.UserId, subject.GetSubjectById(u.SubId).Name))
+								}
+							}
+						}
+
+					} else {
+						c.Ctx.WriteString(fmt.Sprintf("[1]取消用户id %d 的版主身份失败", u.UserId))
+					}
+				} else {
+					c.Ctx.WriteString(fmt.Sprintf("[1]没有权限-取消用户id %d 的版主身份失败", u.UserId))
+				}
 			}
 		} else {
 			c.Ctx.WriteString("[1]操作失败")
@@ -1347,18 +1409,31 @@ func (c *UserController) Get() {
 			}
 		}
 
-		if audit.IsAdmin(v.(int)) {
-			if aUser.Mail == "" {
-				c.Data["Mail"] = "用户没有留下邮箱"
-			} else {
-				c.Data["Mail"] = aUser.Mail
-			}
+		admin := c.GetString("admin", "")
+		if admin == "y" {
+			//带&admin=y访问。管理员或者版主都能查看用户信息
+			if audit.IsAdmin(v.(int)) || (-1 != sqlsys.IsSubMaster(v.(int))) {
+				if aUser.Mail == "" {
+					c.Data["Mail"] = "用户没有留下邮箱"
+				} else {
+					c.Data["Mail"] = aUser.Mail
+				}
 
-			c.Data["IsAdmin"] = true
-			c.Data["UserId"] = aUserAu.UserId
-		} else {
-			c.Data["Mail"] = "仅限管理员可见"
+				c.Data["IsAdmin"] = true
+				c.Data["UserId"] = aUserAu.UserId
+				c.Data["SubType"] = subject.GetSubjectMap()
+				sid := sqlsys.IsSubMaster(aUserAu.UserId)
+				if sid == -1 {
+					c.Data["SubMt"] = "无任何职务"
+				} else {
+					c.Data["SubMt"] = fmt.Sprintf("[%s] 版主", subject.GetSubjectById(sid).Name)
+				}
+
+			} else {
+				c.Data["Mail"] = "仅限管理员可见"
+			}
 		}
+
 	}
 
 	c.TplName = "user.tpl"
@@ -1379,7 +1454,7 @@ type commentMsg struct {
 
 func (c *RemoveController) Post() {
 	v := c.GetSession("id")
-	if v == nil || !audit.IsAdmin(v.(int)) {
+	if v == nil || (!audit.IsAdmin(v.(int)) && (-1 == sqlsys.IsSubMaster(v.(int)))) {
 		c.Ctx.WriteString("[1]没有权限")
 		return
 	}
@@ -1389,6 +1464,15 @@ func (c *RemoveController) Post() {
 		c.Ctx.WriteString("[1]格式不对，请修正！")
 	} else {
 		if !DealParameterCheck(u, "[1]数据格式异常，请修正！", &c.Controller) {
+			return
+		}
+		if !subject.IsSubjectIdExist(u.SubId) {
+			c.Ctx.WriteString("[1]找不到对应的帖子")
+			return
+		}
+		//检查权限
+		if !audit.IsAdmin(v.(int)) && (u.SubId != sqlsys.IsSubMaster(v.(int))) {
+			c.Ctx.WriteString(fmt.Sprintf("[2]权限不足-你没有[%s]版块的管理权限", subject.GetSubjectById(u.SubId).Name))
 			return
 		}
 
