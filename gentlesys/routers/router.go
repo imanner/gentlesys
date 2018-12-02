@@ -22,7 +22,8 @@ func init() {
 
 	//评论文章
 	beego.Router("/comment", &controllers.CommentController{})
-
+	//点赞评论
+	beego.Router("/praise", &controllers.PraiseController{})
 	//注册
 	beego.Router("/register", &controllers.RegisterController{})
 	//登录

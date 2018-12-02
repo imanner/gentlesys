@@ -16,8 +16,8 @@ func CheckExists(filename string) bool {
 	return err == nil
 }
 
-const OnePageObjNum = 20                           //一页最多多少个对象。//如果该值越大，那么每次更新评论时的负载就高，我认为20-50比较合适。
-const OneConPageNum = 32                           //一个存储体多少页面
+const OnePageObjNum = 15                           //一页最多多少个对象。//如果该值越大，那么每次更新评论时的负载就高，我认为10-50比较合适。
+const OneConPageNum = 1                            //一个存储体多少页面
 const OneConObjNum = OnePageObjNum * OneConPageNum //一个存储体多少个对象
 const MaxObjPages = 0x00FFFFFF                     //最大页数，超过该页不能再写入
 
@@ -323,10 +323,11 @@ func (s *Store) UpdateBlockToStore(content []byte, blockNum int) (bool, int) {
 
 		useId := blockNum % OneConPageNum
 		s.readRelativeMetaData(useId, aMeta)
+		/* 最新的结构中，1个块就是一个文件，可以直接更新
 		if len(content) > int(aMeta.Length) {
 			//新内容不能超过旧现有内容
 			return false, 1
-		}
+		}*/
 		cur_offset := int64(aMeta.Start)
 		/*一定要超过元数据，元数据是不能被写的*/
 		metaOff := int64(Int32Bytes + OneConPageNum*McDataHeadSize)

@@ -38,7 +38,7 @@
             <img src="/static/img/n1.png">
             </td>
             <td>
-            <p><span><a href="/browse?sid={{$.Nid}}&aid={{.Id}}"><strong>{{.Title}}</strong></a></span><span><small>&nbsp;&nbsp;&nbsp;&nbsp;<a href="/user?name={{.UserName}}">{{.UserName}}</a>&nbsp;&nbsp;•&nbsp;{{.Date}}&nbsp;</small></span></p>
+            <p><span><a href="/browse?sid={{$.Nid}}&aid={{.Id}}&page=0"><strong>{{.Title}}</strong></a></span><span><small>&nbsp;&nbsp;&nbsp;&nbsp;<a href="/user?name={{.UserName}}">{{.UserName}}</a>&nbsp;&nbsp;•&nbsp;{{.Date}}&nbsp;</small></span></p>
             </td>
          </tr>
          {{end}}
@@ -71,7 +71,7 @@
             <img src="/static/img/t2.png">
             </td>
             <td>
-            <h5><a href="/browse?sid={{$.Sid}}&aid={{.Id}}"><strong>{{.Title}}</strong></a></h5>
+            <h5><a href="/browse?sid={{$.Sid}}&aid={{.Id}}&page=0"><strong>{{.Title}}</strong></a></h5>
             <small><a href="/user?name={{.UserName}}">{{.UserName}}</a>&nbsp;&nbsp;•&nbsp;{{.Date}}&nbsp;发布&nbsp;&nbsp;•&nbsp;[{{.ReadTimes}}/{{.ReplyTimes}}]</small>
             </td>
          </tr>

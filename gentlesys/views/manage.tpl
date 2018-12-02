@@ -129,7 +129,9 @@
             <button type="submit" class="btn-xs btn-warning" onclick="remove({{.SubId}},{{.Aid}},{{$.Uid}},{{.Commentdata.Id}})">(禁该回复)</button></p>
             {{end}}
             <p>时间{{.Commentdata.Time}}&nbsp&nbsp作者&nbsp&nbsp{{.Commentdata.UserName}}&nbsp&nbsp</p>
-            <div>[内容]&nbsp&nbsp{{str2html .Commentdata.Content}}</div>
+            <div><p>[内容]&nbsp&nbsp{{str2html .Commentdata.Content}}</p>
+            <p>{{str2html .Commentdata.Answer}}</p>
+            </div>
         {{end}}
         <script>
         function remove(sid,aid,uid,cid){

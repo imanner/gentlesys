@@ -58,8 +58,12 @@
        <p>#内容已被屏蔽</p>
        {{else}}
        <p>{{str2html .Content}}</p>
+       <p>{{str2html .Answer}}</p>
        {{end}}
-       <h5 class="page-header"></h5>
+        <button type="button" class="btn btn-link pull-right" onclick="praise({{.Id}},{{.Praise}})">
+          <span class="glyphicon glyphicon-thumbs-up"></span><span id="c{{.Id}}"> {{.Praise}}</span>
+        </button>
+       <h5 class="page-header" style="margin-top:30px;margin-bottom:10px;"></h5>
     {{end}}
    
     {{if .NoMore}}
@@ -76,7 +80,39 @@
     	<li><a href="{{.NextPage}}">&raquo;</a></li>
     </ul>
     </div>
-     
+
+    <script>
+    function praise(id,times){
+		$.ajax({
+		          async:true,
+		          cache:false,
+		          timeout:10000,
+		          type:"POST",
+		          url:"/praise",
+		          data:{
+		          	sid_:{{.Sid}},
+					aid_:{{.Aid}},
+					cid_:id,
+			    	},
+		          error:function(jqXHR, textStatus, errorThrown){
+		            if(textStatus=="timeout"){
+		              document.getElementById("botinfo").innerHTML=("提交点赞超时，请稍后再提交...");
+		            }else{
+		              document.getElementById("botinfo").innerHTML=("提交点赞失败!");
+		            }
+		          },
+		          success:function(msg){
+		          	if ("[0]" != msg.substr(0,3)) {
+						document.getElementById("botinfo").innerHTML=(msg);
+		          	} else {
+						document.getElementById("botinfo").innerHTML=("你的点赞已经成功!请不要重复点赞。");
+						document.getElementById("c"+id).innerHTML=(times+1)
+		          	}
+		          }
+		        });
+			}
+    </script>
+    
     {{if .CanReplay}}
     <p class="h5">你的回应 ...... (提示：字数不能超过1000)<label class="btn">
 		<input id="anonymity" type="checkbox" {{.Check}} autocomplete="off"> 匿名发表
@@ -107,8 +143,11 @@
         }
     });
     });
+
+	var answerId = -1
 	function test(name,id){
 		ke.html("<p>@<strong>(#"+id+"楼) "+name+"</strong>&nbsp;&nbsp;</p>");
+		answerId = id
 	}
 	function comment() {
 		
@@ -136,6 +175,8 @@
 		          data:{
 		          	sid_:{{.Sid}},
 					aid_:{{.Aid}},
+					uid_:{{.UserId}},
+					answer_:answerId,
 					anonymity_:anonymity,
 			        comment_:text,
 			    	},
@@ -149,7 +190,8 @@
 		          success:function(msg){
 		          	if ("[0]" != msg.substr(0,3)) {
 						document.getElementById("botinfo").innerHTML=(msg);
-		          	} else {
+						
+		          	} else{
 					    btn.attr("disabled", true);
 						document.getElementById("botinfo").innerHTML=("你的评论已经成功发布!请不要重复提交。");
 						window.location.href=msg.substr(3)

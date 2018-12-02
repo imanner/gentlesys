@@ -55,6 +55,8 @@ var MaxNoticeShowNums int   //首页最多展示的公告数。
 var IsNginxCache bool
 var NginxAccessLogPath string //nginx的日志存放处
 var NginxAccessFlushTimes int //nginx更新主页（清楚缓存）的时间周期
+var level []string            //级别
+var PraiseNumsLimit int
 
 type RecordIndex struct {
 	Ref      string
@@ -81,6 +83,21 @@ func init() {
 		NginxAccessFlushTimes = 30
 	}
 
+	levelNums := GetIntFromCfg("level::nums", 0)
+	level = make([]string, levelNums)
+	for i := 0; i < levelNums; i++ {
+		level[i] = GetStringFromCfg(fmt.Sprintf("level::id.%d", i), "")
+	}
+
+	PraiseNumsLimit = GetIntFromCfg("cache::PraiseNumsLimit", 100)
+}
+
+func GetUserLevelName(id int) string {
+	if id < len(level) {
+		return level[id]
+	} else {
+		return "领袖"
+	}
 }
 
 //将总条数转换为页数
@@ -114,11 +131,13 @@ func CreateNavIndexByPages(curPage int, totalPages int, urlPrex string, urlArgFi
 		var prePage string
 		if curPage <= 0 {
 			prePage = "#没有了"
-		} else if curPage == 1 {
-			prePage = fmt.Sprintf("/%s", urlPrex)
 		} else {
 			prePage = fmt.Sprintf("/%s%s=%d", urlPrex, urlArgFiele, curPage-1)
 		}
+
+		/* else if curPage == 1 {
+			prePage = fmt.Sprintf("/%s", urlPrex)
+		}*/
 
 		var nextPage string
 		if curPage >= (totalPages - 1) {
@@ -127,7 +146,7 @@ func CreateNavIndexByPages(curPage int, totalPages int, urlPrex string, urlArgFi
 			nextPage = fmt.Sprintf("/%s%s=%d", urlPrex, urlArgFiele, curPage+1)
 		}
 		//第0页直接用主要代替
-		recordIndexList[0].Ref = fmt.Sprintf("/%s", urlPrex)
+		//recordIndexList[0].Ref = fmt.Sprintf("/%s", urlPrex)
 		return recordIndexList[:totalPages], prePage, nextPage
 	} else {
 		//第1排只需要后面的..
@@ -146,14 +165,15 @@ func CreateNavIndexByPages(curPage int, totalPages int, urlPrex string, urlArgFi
 			var prePage string
 			if curPage <= 0 {
 				prePage = "#没有了"
-			} else if curPage == 1 {
-				prePage = fmt.Sprintf("/%s", urlPrex)
 			} else {
-
 				prePage = fmt.Sprintf("/%s%s=%d", urlPrex, urlArgFiele, curPage-1)
 			}
+
+			/*else if curPage == 1 {
+				prePage = fmt.Sprintf("/%s", urlPrex)
+			} */
 			//第0页直接用主要代替
-			recordIndexList[0].Ref = fmt.Sprintf("/%s", urlPrex)
+			//recordIndexList[0].Ref = fmt.Sprintf("/%s", urlPrex)
 			return recordIndexList[:nums], prePage, fmt.Sprintf("/%s%s=%d", urlPrex, urlArgFiele, curPage+1)
 		}
 

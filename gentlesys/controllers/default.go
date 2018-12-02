@@ -17,6 +17,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -273,9 +274,9 @@ func (c *ArticleController) Post() {
 			if r {
 				//将返回地址返回给客户端，让其跳转,配合nginx清空缓存
 				if global.IsNginxCache {
-					cachemanager.ClearNgnixCachePage(fmt.Sprintf("/browse?sid=%d&aid=%d", u.SubId, u.ArtiId))
+					cachemanager.ClearNgnixCachePage(fmt.Sprintf("/browse?sid=%d&aid=%d&page=0", u.SubId, u.ArtiId))
 				}
-				ret := fmt.Sprintf("[0]/browse?sid=%d&aid=%d", u.SubId, u.ArtiId)
+				ret := fmt.Sprintf("[0]/browse?sid=%d&aid=%d&page=0", u.SubId, u.ArtiId)
 				c.Ctx.WriteString(ret)
 			} else {
 				ret := fmt.Sprintf("[%d]保存数据库失败", r)
@@ -323,7 +324,7 @@ func (c *ArticleController) Post() {
 
 			userAudit.UpdataDayArticle()
 			//将返回地址返回给客户端，让其跳转
-			ret := fmt.Sprintf("[0]/browse?sid=%d&aid=%d", u.SubId, r)
+			ret := fmt.Sprintf("[0]/browse?sid=%d&aid=%d&page=0", u.SubId, r)
 			c.Ctx.WriteString(ret)
 
 			//让subjectx 页面失效
@@ -448,6 +449,7 @@ func (c *BrowseController) Get() {
 		c.Data["Title"] = subobj.Title
 		c.Data["Sid"] = sid
 		c.Data["Aid"] = aid
+		c.Data["UserId"] = subobj.UserId
 
 		if pageIndex > 0 {
 			c.showComment(pageIndex, sid, aid)
@@ -507,10 +509,126 @@ func (c *BrowseController) Get() {
 	}
 }
 
+//点赞评论的路由
+type PraiseController struct {
+	beego.Controller
+}
+
+//点赞，从客户端提交过来的数据
+type PariseMsg struct {
+	ArtiId    int `form:"aid_" valid:"Required“` //文章Id
+	SubId     int `form:"sid_" valid:"Required“`
+	CommentId int `form:"cid_" valid:"Required“` //评论id
+}
+
+type pariseCacheSt struct {
+	mutex     sync.Mutex
+	pariseMap map[string]int //sid-aid-cid-uid
+}
+
+func init() {
+	pariseCache.pariseMap = make(map[string]int)
+}
+
+var pariseCache pariseCacheSt
+
+type pariseUpdateSt struct {
+	ArtiId    int
+	SubId     int
+	CommentId int
+	times     int
+}
+
+func saveParise() {
+	pariseCache.mutex.Lock()
+	//进来后再次检查下当前map值，不满足限度直接返回
+	if len(pariseCache.pariseMap) < global.PraiseNumsLimit {
+		pariseCache.mutex.Unlock()
+		return
+	}
+	tmp := pariseCache.pariseMap
+	pariseCache.pariseMap = make(map[string]int)
+	pariseCache.mutex.Unlock()
+
+	//保存tmp到结构
+	ptimes := make(map[string]*pariseUpdateSt)
+	for k, _ := range tmp {
+		ks := strings.Split(k, "-")
+		//通过取出sid-aid-cid得到该评论的累计值
+		key := fmt.Sprintf("%s-%s-%s", ks[0], ks[1], ks[2])
+		if _, ok := ptimes[key]; ok {
+			ptimes[key].times++
+		} else {
+			sid, err := strconv.Atoi(ks[0])
+			aid, err1 := strconv.Atoi(ks[1])
+			cid, err2 := strconv.Atoi(ks[2])
+			if err == nil && err1 == nil && err2 == nil {
+				ptimes[key] = &pariseUpdateSt{times: 1}
+				ptimes[key].SubId = sid
+				ptimes[key].ArtiId = aid
+				ptimes[key].CommentId = cid
+			}
+		}
+	}
+	for _, v := range ptimes {
+		//定位到多少页
+		pagesNum := v.CommentId / store.OnePageObjNum
+		sobj := &store.Store{}
+		sobj.Init(audit.GetCommonStrCfg("commentDirPath"), fmt.Sprintf("s%d_a%d", v.SubId, v.ArtiId))
+		key := fmt.Sprintf("%s_%s", v.SubId, v.ArtiId)
+		ccobj := comment.GetCommentHandlerByPath(key)
+		//上下两个defer的位置顺序值得思考，写加写锁
+		ccobj.Mutex.Lock()
+		ccobj.UpdateOneCommentPraise(pagesNum, v.CommentId, v.times, sobj)
+		fmt.Printf("%d-%d-%d更新%d\n", v.SubId, v.ArtiId, v.CommentId, v.times)
+		ccobj.Mutex.Unlock()
+		comment.DelCommentHandlerByPath(key)
+	}
+}
+
+func (c *PraiseController) Post() {
+	v := c.GetSession("id")
+	if v == nil {
+		c.Ctx.WriteString("[4]你还没有登录，不能留言,请先登录...")
+		return
+	}
+	u := &PariseMsg{}
+	if err := c.ParseForm(u); err != nil {
+		c.Ctx.WriteString("[2]格式不对，请修正！")
+	} else {
+		if !DealParameterCheck(u, "[3]数据格式异常，请修正！", &c.Controller) {
+			return
+		}
+	}
+
+	//sid-aid-cid-uid
+	key := fmt.Sprintf("%d-%d-%d-%d", u.SubId, u.ArtiId, u.CommentId, v.(int))
+
+	if _, ok := pariseCache.pariseMap[key]; ok {
+		c.Ctx.WriteString("[1]你已经点赞过了，待系统同步更新...")
+	} else {
+		pariseCache.mutex.Lock()
+		pariseCache.pariseMap[key] = 1
+		if len(pariseCache.pariseMap) >= global.PraiseNumsLimit {
+			fmt.Printf("开始更新点赞map...")
+			go saveParise()
+		}
+		pariseCache.mutex.Unlock()
+		c.Ctx.WriteString("[0]点赞成功...")
+
+		//当点赞超过100的时候才更新一次数据库
+
+	}
+
+}
+
 //评论，从客户端提交过来的数据
 type Comment struct {
-	ArtiId    int    `form:"aid_" valid:"Required“` //文章Id
-	SubId     int    `form:"sid_" valid:"Required“`
+	ArtiId   int `form:"aid_" valid:"Required“` //文章Id
+	SubId    int `form:"sid_" valid:"Required“`
+	UserId   int `form:"uid_" valid:"Required“`
+	AnswerId int `form:"answer_" valid:"Required“`
+	//文章的原作者
 	Anonymity bool   `form:"anonymity_"`                                         //是否匿名                       //主题id
 	Value     string `form:"comment_" valid:"Required;MinSize(1);MaxSize(1000)"` //评论内容
 }
@@ -520,7 +638,7 @@ type CommentController struct {
 	beego.Controller
 }
 
-func (c *CommentController) UpdateUserCommentRecord(content *store.CommentData, userId int, sid int, aid int) {
+func (c *CommentController) AddOneUserCommentRecord(content *store.CommentData, userId int, sid int, aid int) {
 	aRecord := &store.UserCommentData{SubId: proto.Int(sid), Aid: proto.Int(aid)}
 	aRecord.Commentdata = content
 
@@ -531,7 +649,7 @@ func (c *CommentController) UpdateUserCommentRecord(content *store.CommentData, 
 
 	if ok, _ := cobj.AddOneUserComment(aRecord, sobj); ok {
 	} else {
-		logs.Error("UpdateUserCommentRecord err")
+		logs.Error("AddOneUserCommentRecord err")
 	}
 
 }
@@ -551,11 +669,19 @@ func (c *CommentController) Post() {
 			return
 		}
 	}
+	id := c.GetSession("id")
 
+	//如果
+	fmt.Printf("answer %d src %d now %d\n", u.AnswerId, u.UserId, id.(int))
+
+	//如果是作者回复其中一位玩家
+	isAuthorAnswer := false
+	if u.AnswerId != -1 && u.UserId == id.(int) {
+		isAuthorAnswer = true
+	}
 	//用户回复审计
 	var userAudit sqlsys.UserAudit
 
-	id := c.GetSession("id")
 	userAudit.UserId = id.(int)
 
 	if !userAudit.ReadDb() {
@@ -574,12 +700,45 @@ func (c *CommentController) Post() {
 		}
 	}
 
+	//不是新加回复，是作者回复其中的评论者
+	if isAuthorAnswer {
+		pagesNum := u.AnswerId / store.OnePageObjNum
+		sobj := &store.Store{}
+		sobj.Init(audit.GetCommonStrCfg("commentDirPath"), fmt.Sprintf("s%d_a%d", u.SubId, u.ArtiId))
+		key := fmt.Sprintf("%s_%s", u.SubId, u.ArtiId)
+		ccobj := comment.GetCommentHandlerByPath(key)
+		//上下两个defer的位置顺序值得思考，写加写锁
+		ccobj.Mutex.Lock()
+		ok, _ := ccobj.AnswerOneComment(pagesNum, u.AnswerId, u.Value, sobj)
+		ccobj.Mutex.Unlock()
+		comment.DelCommentHandlerByPath(key)
+
+		if ok {
+			//清空缓存
+			if global.IsNginxCache {
+				cachemanager.ClearNgnixCachePage(fmt.Sprintf("/browse?sid=%d&aid=%d&page=%d", u.SubId, u.ArtiId, pagesNum))
+			}
+			c.Ctx.WriteString(fmt.Sprintf("[0]/browse?sid=%d&aid=%d&page=%d", u.SubId, u.ArtiId, pagesNum))
+
+			sobj := &store.Store{}
+			sobj.Init(audit.GetCommonStrCfg("userInfoDirPath"), fmt.Sprintf("c%d", id.(int)))
+			cobj := &userinfo.Comment{}
+
+			go cobj.UpdateOneCommentAnswer(u.SubId, u.ArtiId, pagesNum, u.AnswerId, u.Value, sobj)
+
+		} else {
+			c.Ctx.WriteString("[2]作者回复失败")
+		}
+		return
+	}
+
 	aData := &store.CommentData{}
 	//去掉kindeditor非法的字符
 	u.Value = reg.DelErrorString(u.Value)
 	//图片加上自动适配
 	u.Value = reg.AddImagAutoClass(u.Value)
 	aData.Content = &u.Value
+	aData.Answer = proto.String("") //最开始是没有作者回复的
 	aData.Time = proto.String(time.Now().Format("2006-01-02 15:04:05"))
 	if u.Anonymity {
 		aData.UserName = proto.String("匿名网友")
@@ -588,6 +747,7 @@ func (c *CommentController) Post() {
 	}
 
 	aData.IsDel = proto.Bool(false)
+	aData.Praise = proto.Uint32(0)
 
 	sobj := &store.Store{}
 	sobj.Init(audit.GetCommonStrCfg("commentDirPath"), fmt.Sprintf("s%d_a%d", u.SubId, u.ArtiId))
@@ -601,19 +761,13 @@ func (c *CommentController) Post() {
 
 	if ok, pages := ctobj.AddOneComment(aData, sobj); ok {
 		//跳转到点评页面的最后一页，让用户看到自己的点评
-		if pages > 0 {
-			//清空缓存
-			if global.IsNginxCache {
-				cachemanager.ClearNgnixCachePage(fmt.Sprintf("/browse?sid=%d&aid=%d&page=%d", u.SubId, u.ArtiId, pages))
-			}
 
-			c.Ctx.WriteString(fmt.Sprintf("[0]/browse?sid=%d&aid=%d&page=%d", u.SubId, u.ArtiId, pages))
-		} else {
-			if global.IsNginxCache {
-				cachemanager.ClearNgnixCachePage(fmt.Sprintf("/browse?sid=%d&aid=%d", u.SubId, u.ArtiId))
-			}
-			c.Ctx.WriteString(fmt.Sprintf("[0]/browse?sid=%d&aid=%d", u.SubId, u.ArtiId))
+		//清空缓存
+		if global.IsNginxCache {
+			cachemanager.ClearNgnixCachePage(fmt.Sprintf("/browse?sid=%d&aid=%d&page=%d", u.SubId, u.ArtiId, pages))
 		}
+
+		c.Ctx.WriteString(fmt.Sprintf("[0]/browse?sid=%d&aid=%d&page=%d", u.SubId, u.ArtiId, pages))
 
 		userAudit.TlCommentTimes++
 		userAudit.DayCommentTimes++
@@ -630,7 +784,7 @@ func (c *CommentController) Post() {
 		if u.Anonymity {
 			aData.UserName = proto.String(v.(string))
 		}
-		go c.UpdateUserCommentRecord(aData, id.(int), u.SubId, u.ArtiId)
+		go c.AddOneUserCommentRecord(aData, id.(int), u.SubId, u.ArtiId)
 	} else {
 		c.Ctx.WriteString("[2]提交评论失败")
 	}
@@ -1401,7 +1555,7 @@ func (c *UserController) Get() {
 		if aUserAu.ReadDb() {
 			c.Data["TlArticleNums"] = aUserAu.TlArticleNums
 			c.Data["TlCommentTimes"] = aUserAu.TlCommentTimes
-			c.Data["Level"] = aUserAu.Level
+			c.Data["Level"] = global.GetUserLevelName(aUserAu.Level)
 			if aUserAu.Could {
 				c.Data["Status"] = "被禁言"
 			} else {

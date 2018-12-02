@@ -5,6 +5,7 @@ package comment
 import (
 	"gentlesys/store"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/golang/protobuf/proto"
@@ -65,6 +66,44 @@ func (c *Comment) DisableOneComment(pageNums int, id int, sobj *store.Store) (bo
 					return false, 1
 				}
 				v.IsDel = proto.Bool(true)
+				mdata, err := proto.Marshal(srcData)
+				if err != nil {
+					panic(err)
+				}
+				return sobj.UpdateBlockToStore(mdata, pageNums)
+			}
+		}
+	}
+	return false, 0
+}
+
+//修改点赞数量
+func (c *Comment) UpdateOneCommentPraise(pageNums int, id int, times int, sobj *store.Store) (bool, int) {
+	if srcData, _, ok := c.ReadCommentBlockByIndex(pageNums, sobj); ok && srcData != nil {
+		for _, v := range srcData.Commentdata {
+			if int(*v.Id) == id {
+				//找到并增加1次
+				(*v.Praise) += uint32(times)
+				mdata, err := proto.Marshal(srcData)
+				if err != nil {
+					panic(err)
+				}
+				return sobj.UpdateBlockToStore(mdata, pageNums)
+			}
+		}
+	}
+	return false, 0
+}
+
+//作者回复回帖内容
+func (c *Comment) AnswerOneComment(pageNums int, id int, answer string, sobj *store.Store) (bool, int) {
+	if srcData, _, ok := c.ReadCommentBlockByIndex(pageNums, sobj); ok && srcData != nil {
+		for _, v := range srcData.Commentdata {
+			if int(*v.Id) == id {
+				//找到并增加作者回答
+				answer = strings.Replace(answer, "@", "作者回复@", 1)
+				v.Answer = proto.String(answer)
+				//fmt.Printf("作者回复%s\n", answer)
 				mdata, err := proto.Marshal(srcData)
 				if err != nil {
 					panic(err)

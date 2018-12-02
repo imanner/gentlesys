@@ -3,6 +3,7 @@ package userinfo
 import (
 	"gentlesys/store"
 	"os"
+	"strings"
 
 	"github.com/golang/protobuf/proto"
 )
@@ -45,6 +46,29 @@ func (c *Comment) DisableOneComment(subId int, aid int, pageNums int, id int, so
 	return false, 0
 }
 
+//修改一条作者回复
+func (c *Comment) UpdateOneCommentAnswer(subId int, aid int, pageNums int, id int, answer string, sobj *store.Store) (bool, int) {
+
+	if srcData, ok := c.ReadCommentBlockByIndex(pageNums, sobj); ok && srcData != nil {
+
+		for _, v := range srcData.Usercommentdata {
+			if int(*v.SubId) == subId && int(*v.Aid) == aid && int(*(v.Commentdata.Id)) == id {
+				//找到并修改
+				answer = strings.Replace(answer, "@", "作者回复@", 1)
+				v.Commentdata.Answer = proto.String(answer)
+
+				mdata, err := proto.Marshal(srcData)
+				if err != nil {
+					panic(err)
+				}
+				return sobj.UpdateBlockToStore(mdata, pageNums)
+			}
+		}
+		//fmt.Printf("退出第%d楼用户中心已经删除回复\n", id)
+	}
+	return false, 0
+}
+
 //增加一条发帖，返回最后评论页面index
 func (c *Comment) AddOneUserComment(data *store.UserCommentData, sobj *store.Store) (bool, int) {
 
@@ -65,10 +89,6 @@ func (c *Comment) AddOneUserComment(data *store.UserCommentData, sobj *store.Sto
 	if err != nil {
 		panic(err)
 	}
-	//var isCurMcFull bool = false
-	//if len(srcData.Usercommentdata) >= store.OnePageObjNum {
-	//	isCurMcFull = true
-	//}
 
 	return sobj.UpdateTailBlockToStore(mdata, len(srcData.Usercommentdata))
 

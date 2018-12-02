@@ -394,11 +394,9 @@ func clearNgnixDirtySubjectPages() {
 
 func ClearNgnixCachePageWithId(sid int, aid int, page int) {
 	var url string
-	if page == 0 {
-		url = fmt.Sprintf("http://127.0.0.1/pre/browse?sid=%d&aid=%d", sid, aid)
-	} else {
-		url = fmt.Sprintf("http://127.0.0.1/pre/browse?sid=%d&aid=%d&page=%d", sid, aid, page)
-	}
+
+	url = fmt.Sprintf("http://127.0.0.1/pre/browse?sid=%d&aid=%d&page=%d", sid, aid, page)
+
 	http.Head(url)
 }
 

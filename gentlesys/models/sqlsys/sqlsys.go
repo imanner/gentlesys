@@ -473,19 +473,20 @@ func (s *Subject) GetTopicListSortByField(subId int, field string, nums int) *[]
 	// 获取 QuerySeter 对象，user 为表名
 	qs := o.QueryTable(fmt.Sprintf("sub%d", subId))
 	var posts []orm.ParamsList
-	qs.OrderBy(field).Limit(nums).ValuesList(&posts, "Id", "UserName", "Date", "Type", "Title", "ReadTimes", "ReplyTimes", "Disable", "Anonymity")
+	qs.OrderBy(field).Limit(nums).ValuesList(&posts, "Id", "UserId", "UserName", "Date", "Type", "Title", "ReadTimes", "ReplyTimes", "Disable", "Anonymity")
 	var ret []*Subject = make([]*Subject, len(posts))
 	for i, k := range posts {
 		ret[i] = &Subject{}
 		ret[i].Id = int(k[0].(int64))
-		ret[i].UserName = k[1].(string)
-		ret[i].Date = k[2].(string)
-		ret[i].Type = int(k[3].(int64))
-		ret[i].Title = k[4].(string)
-		ret[i].ReadTimes = int(k[5].(int64))
-		ret[i].ReplyTimes = int(k[6].(int64))
-		ret[i].Disable = k[7].(bool)
-		ret[i].Anonymity = k[8].(bool)
+		ret[i].UserId = int(k[1].(int64))
+		ret[i].UserName = k[2].(string)
+		ret[i].Date = k[3].(string)
+		ret[i].Type = int(k[4].(int64))
+		ret[i].Title = k[5].(string)
+		ret[i].ReadTimes = int(k[6].(int64))
+		ret[i].ReplyTimes = int(k[7].(int64))
+		ret[i].Disable = k[8].(bool)
+		ret[i].Anonymity = k[9].(bool)
 		ret[i].Path = fmt.Sprintf("s%d_a%d", subId, ret[i].Id)
 	}
 	return &ret

@@ -8,11 +8,12 @@ message CommentStory {
 
 message CommentData {
 	optional string userName  = 1;    /*谁评论的*/
-	optional string answerName = 2;    /*回复谁*/
+	optional string answer = 2;    /*作者的回复*/
 	optional string time = 3;    /*评论时间*/
 	optional string content =4; /*评论内容*/
 	optional int32 	id = 5;/*该评论的序号*/
-	optional bool isDel = 6; /*是否被删除*/
+	optional bool isDel = 6; /*是否被删除。*/
+	optional fixed32 praise = 7; //点赞次数。固定4字节
 }
 
 message UserTopics {
