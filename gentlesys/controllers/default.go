@@ -272,6 +272,9 @@ func (c *ArticleController) Post() {
 
 			r := u.UpdateDb()
 			if r {
+				//更新缓存
+				name := c.GetSession("user")
+				cachemanager.CacheSubjectObjMaps[u.SubId].UpdateSubjectAnonymityAndTypes(u.ArtiId, u.Anonymity, name.(string), u.Type)
 				//将返回地址返回给客户端，让其跳转,配合nginx清空缓存
 				if global.IsNginxCache {
 					cachemanager.ClearNgnixCachePage(fmt.Sprintf("/browse?sid=%d&aid=%d&page=0", u.SubId, u.ArtiId))
@@ -624,11 +627,10 @@ func (c *PraiseController) Post() {
 
 //评论，从客户端提交过来的数据
 type Comment struct {
-	ArtiId   int `form:"aid_" valid:"Required“` //文章Id
-	SubId    int `form:"sid_" valid:"Required“`
-	UserId   int `form:"uid_" valid:"Required“`
-	AnswerId int `form:"answer_" valid:"Required“`
-	//文章的原作者
+	ArtiId    int    `form:"aid_" valid:"Required“` //文章Id
+	SubId     int    `form:"sid_" valid:"Required“`
+	UserId    int    `form:"uid_" valid:"Required“` //文章的原作者
+	AnswerId  int    `form:"answer_" valid:"Required“`
 	Anonymity bool   `form:"anonymity_"`                                         //是否匿名                       //主题id
 	Value     string `form:"comment_" valid:"Required;MinSize(1);MaxSize(1000)"` //评论内容
 }
@@ -671,8 +673,7 @@ func (c *CommentController) Post() {
 	}
 	id := c.GetSession("id")
 
-	//如果
-	fmt.Printf("answer %d src %d now %d\n", u.AnswerId, u.UserId, id.(int))
+	//fmt.Printf("answer %d src %d now %d\n", u.AnswerId, u.UserId, id.(int))
 
 	//如果是作者回复其中一位玩家
 	isAuthorAnswer := false
@@ -913,12 +914,6 @@ func (c *QuitController) Get() {
 		c.DestroySession()
 		c.Ctx.SetCookie("user", "游客")
 	}
-	/*
-		c.Data["Title"] = "用户登录"
-		c.Data["Navigation"] = navigation.GetNav()
-		c.Data["Pagenav"] = navigation.GetMainPageNavData()
-		c.Data["Subject"] = subject.GetMainPageSubjectData()
-		c.TplName = "main.tpl"*/
 	gotoMain(&c.Controller)
 }
 
@@ -1122,9 +1117,18 @@ func (c *EditController) Get() {
 			return
 		}
 
-		ret, u := sqlsys.ReadSubjectFromDb(sid, aid)
+		ret, u := cachemanager.CacheSubjectObjMaps[sid].ReadSubjectFromCache(aid)
 		if 0 == ret {
-			c.Data["TopicType"] = subject.GetTopicTyleList()
+
+			if sid == 1001 {
+				c.Data["SubType"] = subject.GetMainPageSubjectData()
+				c.Data["IsNotice"] = true
+			} else {
+				c.Data["TopicType"] = subject.GetTopicTyleList()
+				c.Data["IsNotice"] = false
+			}
+
+			c.Data["SelValue"] = u.Type
 			c.Data["UserId"] = u.UserId
 			c.Data["UserName"] = u.UserName
 			c.Data["Title"] = u.Title
@@ -1290,7 +1294,7 @@ func (c *ManageController) Get() {
 
 	c.Data["Navigation"] = navigation.GetNav()
 	c.Data["ManageUrl"] = audit.GetCommonStrCfg("managerurl")
-	c.Data["SubType"] = subject.GetSubjectMap() //subject.GetMainPageSubjectData()
+	c.Data["SubType"] = subject.GetSubjectMap()
 
 	pageIndex, _ := c.GetInt("page", 0)
 

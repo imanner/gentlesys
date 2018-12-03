@@ -44,7 +44,6 @@ var CacheSubjectObjMaps map[int]*CacheObj
 
 //每个主题的global.CachePagesNums个页面都是在内存中的，每页global.OnePageElementCount个帖子
 func initCacheSubject() {
-	//subNodes := subject.GetMainPageSubjectData()
 	subNodesMap := subject.GetSubjectMap()
 
 	if global.IsNginxCache {
@@ -102,6 +101,45 @@ func (c *CacheObj) UpdateSubjectDisableStatus(v *sqlsys.Subject) {
 	defer c.mutex.Unlock()
 	if _, ok := c.elementMap[v.Id]; ok {
 		c.elementMap[v.Id].s.Disable = !c.elementMap[v.Id].s.Disable
+	}
+}
+func (c *CacheObj) AddNoticeFront(e *sqlsys.Subject) {
+	c.mutexNotices.Lock()
+	defer c.mutexNotices.Unlock()
+	c.notices.PushFront(e)
+}
+
+//设置缓存中的禁用状态，类型
+func (c *CacheObj) UpdateSubjectAnonymityAndTypes(aid int, status bool, name string, types int) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if _, ok := c.elementMap[aid]; ok {
+		if c.elementMap[aid].s.Anonymity != status {
+			c.elementMap[aid].s.Anonymity = status
+			//由非匿名设置为匿名，可以,反之。
+			if status {
+				c.elementMap[aid].s.UserName = "匿名用户"
+			} else {
+				c.elementMap[aid].s.UserName = name
+			}
+		}
+		if c.elementMap[aid].s.Type != types {
+			oldType := c.elementMap[aid].s.Type
+			c.elementMap[aid].s.Type = types
+			//如果是通知，则还需要更换通知链表
+			if c.SubId == 1001 {
+				CacheSubjectObjMaps[oldType].mutexNotices.Lock()
+				for e := CacheSubjectObjMaps[oldType].notices.Front(); e != nil; e = e.Next() {
+					if e.Value.(*sqlsys.Subject).Id == aid {
+						//找到并删除旧额，插到新的
+						c.notices.Remove(e)
+						CacheSubjectObjMaps[types].AddNoticeFront(e.Value.(*sqlsys.Subject))
+						fmt.Printf("从%d删除加到%d\n", oldType, types)
+					}
+				}
+				CacheSubjectObjMaps[oldType].mutexNotices.Unlock()
+			}
+		}
 	}
 }
 
@@ -321,6 +359,7 @@ func (c *CacheObj) ReadSubjectFromCache(id int) (int, *sqlsys.Subject) {
 
 }
 
+//更新公告，只处理公告数据结构
 func (c *CacheObj) UpdateNoticeElement(v interface{}) {
 	if c.SubId != 1001 {
 		c.mutexNotices.Lock()

@@ -134,7 +134,7 @@
         items:[  'source', '|', 'preview', 'code', '|', 'justifyleft', 'justifycenter', 'justifyright',
     'justifyfull','selectall', '|',
     'formatblock', 'fontsize', 'removeformat','|', 'forecolor', 'bold',
-    'italic', 'underline', '|', 'image', 'media','link', '|'],
+    'italic', 'underline', '|', 'image','link', '|'],
 	afterCreate:function () {
         this.sync();                  
         },

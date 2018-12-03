@@ -33,6 +33,17 @@
         <h5><strong>博文题目 (标题不能修改)</strong></h5>
     	<textarea id="title" class="form-control" rows="1" readonly="readonly"></textarea>
     	<script>document.getElementById("title").value="{{.Title}}"</script>
+    	{{if .IsNotice}}
+    	<p style="margin-top:10px;">
+        <span><strong>请选择公告所在的版块</strong></span>
+        <span><select id="tcType" class="select">
+    	{{range .SubType}}
+        <option value="{{.UniqueId}}">{{.Name}}</option>
+        {{end}}
+        </select>
+        </span>
+        </p>
+        {{else}}
     	<p style="margin-top:10px;"><span>
     	<strong>请选择文章类型</strong>
     	</span>
@@ -42,6 +53,8 @@
         {{end}}
         </select>
         </span></p>
+        {{end}}
+        
     	<h5><strong>文章内容 (必填，提示：html字数不能超过1000000，如果字数较多，请先写好后一并粘贴过来，以防文字丢失！)</strong></h5>
         <div>
         <textarea id="story" name="content" style="width:100%;height:500px;"></textarea>
@@ -50,6 +63,9 @@
         </script>
         </div>
     	<script type="text/javascript">
+
+		$("#tcType").val({{.SelValue}}); 
+		
 		var ke
         KindEditor.ready(function(K) {
             ke = K.create('#story', {
