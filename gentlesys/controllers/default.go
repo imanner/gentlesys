@@ -630,7 +630,7 @@ type Comment struct {
 	ArtiId    int    `form:"aid_" valid:"Required"` //文章Id
 	SubId     int    `form:"sid_" valid:"Min(0)"`
 	UserId    int    `form:"uid_" valid:"Required"`                              //文章的原作者
-	AnswerId  int    `form:"answer_" valid:"Min(0)"`                             //回复第几楼
+	AnswerId  int    `form:"answer_" valid:"Min(-1)"`                             //回复第几楼
 	Anonymity bool   `form:"anonymity_"`                                         //是否匿名                       //主题id
 	Value     string `form:"comment_" valid:"Required;MinSize(1);MaxSize(1000)"` //评论内容
 }
