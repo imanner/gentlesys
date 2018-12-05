@@ -96,8 +96,8 @@ func initSubMaster() {
 //用户的表
 type User struct {
 	Id      int       `orm:"unique"`                                                          //用户ID                                                    //ID
-	Name    string    `orm:"size(32)" form:"name_" valid:"Required;MinSize(1);MaxSize(32)“`   //名称
-	Passwd  string    `orm:"size(32)" form:"passwd_" valid:"Required;MinSize(6);MaxSize(32)“` //密码
+	Name    string    `orm:"size(32)" form:"name_" valid:"Required;MinSize(1);MaxSize(32)"`   //名称
+	Passwd  string    `orm:"size(32)" form:"passwd_" valid:"Required;MinSize(6);MaxSize(32)"` //密码
 	Birth   time.Time `orm:"size(12);auto_now_add;type(date)"`                                //注册时间
 	Lastlog time.Time `orm:"size(12);auto_now;null;type(date)"`                               //上次登录时间
 	Fail    int       `orm:"null;"`
@@ -577,8 +577,8 @@ func init() {
 //发送文章，从客户端提交过来的数据
 type CommitArticle struct {
 	ArtiId    int    `form:"atId_"`                    //文章Id,如果是编辑则有，是新建则无
-	SubId     int    `form:"subId_" valid:"Required“`  //主题id
-	UserId    int    `form:"userId_" valid:"Required“` //用户id
+	SubId     int    `form:"subId_" valid:"Min(0)"`    //主题id
+	UserId    int    `form:"userId_" valid:"Required"` //用户id
 	Type      int    `form:"type_"`                    //话题类型
 	Anonymity bool   `form:"anonymity_"`               //是否匿名
 	UserName  string `form:"userName_" valid:"MinSize(1);MaxSize(32)" `
@@ -738,8 +738,8 @@ func SubjectReadTimesUpdate(sid int, aid int, times int) {
 
 //版主设置
 type SubjectMaster struct {
-	SubId   int    `orm:"unique;pk"`        //主板ID
-	Masters string `orm:"null;default("")"` //是否禁用该用户发言或点评
+	SubId   int    `orm:"unique;pk"` //主板ID
+	Masters string `orm:"null;"`     //是否禁用该用户发言或点评
 }
 
 func (v *SubjectMaster) GetAllSubMasterRecords() *[]*SubjectMaster {

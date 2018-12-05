@@ -519,9 +519,9 @@ type PraiseController struct {
 
 //点赞，从客户端提交过来的数据
 type PariseMsg struct {
-	ArtiId    int `form:"aid_" valid:"Required“` //文章Id
-	SubId     int `form:"sid_" valid:"Required“`
-	CommentId int `form:"cid_" valid:"Required“` //评论id
+	ArtiId    int `form:"aid_" valid:"Required"` //文章Id
+	SubId     int `form:"sid_" valid:"Min(0)"`
+	CommentId int `form:"cid_" valid:"Min(0)"` //评论id
 }
 
 type pariseCacheSt struct {
@@ -627,10 +627,10 @@ func (c *PraiseController) Post() {
 
 //评论，从客户端提交过来的数据
 type Comment struct {
-	ArtiId    int    `form:"aid_" valid:"Required“` //文章Id
-	SubId     int    `form:"sid_" valid:"Required“`
-	UserId    int    `form:"uid_" valid:"Required“` //文章的原作者
-	AnswerId  int    `form:"answer_" valid:"Required“`
+	ArtiId    int    `form:"aid_" valid:"Required"` //文章Id
+	SubId     int    `form:"sid_" valid:"Min(0)"`
+	UserId    int    `form:"uid_" valid:"Required"`                              //文章的原作者
+	AnswerId  int    `form:"answer_" valid:"Min(0)"`                             //回复第几楼
 	Anonymity bool   `form:"anonymity_"`                                         //是否匿名                       //主题id
 	Value     string `form:"comment_" valid:"Required;MinSize(1);MaxSize(1000)"` //评论内容
 }
@@ -929,7 +929,7 @@ func (c *FindPasswdController) Get() {
 
 //找回密码时用户从客户端回传的结构体
 type findPasswd struct {
-	Name string `form:"name_" valid:"Required;MinSize(1);MaxSize(32)“`
+	Name string `form:"name_" valid:"Required;MinSize(1);MaxSize(32)"`
 }
 
 //找回密码post页面，发送邮件到邮箱
@@ -993,7 +993,7 @@ func (c *RePasswdController) Get() {
 }
 
 type RePasswdInfo struct {
-	Id     string `form:"id_" valid:"Required“`
+	Id     string `form:"id_" valid:"Required"`
 	Passwd string `form:"passwd_" valid:"Required;MinSize(1);MaxSize(32)" `
 }
 
@@ -1331,9 +1331,9 @@ func (c *ManageController) Get() {
 }
 
 type ManageData struct {
-	Subid int    `form:"subid_" valid:"Required“`
-	Type  int    `form:"type_" valid:"Required“`
-	Key   string `form:"key_" valid:"Required“`
+	Subid int    `form:"subid_" valid:"Min(0)"`
+	Type  int    `form:"type_" valid:"Min(0)"`
+	Key   string `form:"key_" valid:"Required"`
 }
 
 func (c *ManageController) Post() {
@@ -1385,8 +1385,8 @@ type DisableController struct {
 }
 
 type DisableData struct {
-	Subid int `form:"subid_" valid:"Required“`
-	Aid   int `form:"aid_" valid:"Required“`
+	Subid int `form:"subid_" valid:"Min(0)"`
+	Aid   int `form:"aid_" valid:"Required"`
 }
 
 func (c *DisableController) Post() {
@@ -1444,8 +1444,8 @@ type UserController struct {
 }
 
 type userMsg struct {
-	UserId int `form:"userId_" valid:"Required“`
-	Type   int `form:"type_" valid:"Required“`
+	UserId int `form:"userId_" valid:"Required"`
+	Type   int `form:"type_" valid:"Min(0)"`
 	SubId  int `form:"subId_"`
 }
 
@@ -1603,11 +1603,11 @@ type RemoveController struct {
 }
 
 type commentMsg struct {
-	SubId          int `form:"subId_" valid:"Required“`
-	ArtiId         int `form:"artiId_" valid:"Required“`
-	UserId         int `form:"userId_" valid:"Required“`
-	CommentId      int `form:"cid_" valid:"Required“`
-	CommentPageNum int `form:"pages_" valid:"Required“`
+	SubId          int `form:"subId_" valid:"Min(0)"`
+	ArtiId         int `form:"artiId_" valid:"Required"`
+	UserId         int `form:"userId_" valid:"Required"`
+	CommentId      int `form:"cid_" valid:"Min(0)"`
+	CommentPageNum int `form:"pages_" valid:"Min(0)"`
 }
 
 func (c *RemoveController) Post() {

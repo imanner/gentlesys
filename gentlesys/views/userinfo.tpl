@@ -43,7 +43,7 @@
         
         <p>{{.Info}}</p>
         {{range .TopicsList}}
-        <p>发布时间{{.Time}}&nbsp&nbsp[主题]&nbsp&nbsp<a href="/browse?sid={{.Sid}}&aid={{.Aid}}" target="_blank"> {{.Title}}</a>&nbsp&nbsp&nbsp&nbsp<a class="edit_prob" href="/edit?sid={{.Sid}}&aid={{.Aid}}" target="_blank">(编辑) </a></p>
+        <p>发布时间{{.Time}}&nbsp&nbsp[主题]&nbsp&nbsp<a href="/browse?sid={{.Sid}}&aid={{.Aid}}&page=0" target="_blank"> {{.Title}}</a>&nbsp&nbsp&nbsp&nbsp<a class="edit_prob" href="/edit?sid={{.Sid}}&aid={{.Aid}}" target="_blank">(编辑) </a></p>
         {{end}}
     </div>
 </div>
