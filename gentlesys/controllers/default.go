@@ -866,6 +866,13 @@ func (c *RegisterController) Get() {
 	c.TplName = "register.tpl"
 }
 
+func isStrContainBlank(str *string) bool {
+	if strings.Contains(*str, " ") || strings.Contains(*str, "\n") || strings.Contains(*str, "\t") {
+		return true
+	}
+	return false
+}
+
 func (c *RegisterController) Post() {
 	u := sqlsys.User{}
 	if err := c.ParseForm(&u); err != nil {
@@ -878,6 +885,9 @@ func (c *RegisterController) Post() {
 
 		if u.Mail == "" || strings.IndexByte(u.Mail, '@') == -1 {
 			c.Ctx.WriteString("[2]邮箱格式不对，请修正！这是找回密码的方式")
+			return
+		}else if isStrContainBlank(&u.Name) || isStrContainBlank(&u.Passwd) || isStrContainBlank(&u.Mail) {
+			c.Ctx.WriteString("[2]不能含有空格类字符，格式不对，请修正！")
 			return
 		}
 

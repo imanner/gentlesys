@@ -63,7 +63,14 @@
     </div>
     
     </div>
-        <script>
+    <script>
+        function check(str){
+		    if (str.indexOf(" ") == -1){
+		        return true;
+		    }
+			return false;
+        }
+
 		function doRegister() {
 	    	var name = document.getElementById("name").value;
 			var passwd = document.getElementById("passwd").value;
@@ -76,8 +83,11 @@
 			} else if(name.length > 32) {
 				document.getElementById("info").innerHTML=("用户名长度不能超过32个字符！");
 				return 
-			} 
-
+			} else if (!check(name)) {
+				document.getElementById("info").innerHTML=("用户名不能包含空格！");
+				return 
+			}
+			
 			if (passwd.length < 6) {
 				document.getElementById("info").innerHTML=("密码不能小于6位长度！");
 				return 
@@ -87,8 +97,14 @@
 			} else if (passwd != confirm) {
 				document.getElementById("info").innerHTML=("两次输入密码不一致！");
 				return 
-			} else if(mail.length < 1) {
+			} else if (!check(passwd)) {
+				document.getElementById("info").innerHTML=("密码不能包含空格！");
+				return 
+			}else if(mail.length < 1) {
 				document.getElementById("info").innerHTML=("没有输入用于找回密码的邮箱！请输入邮箱");
+				return 
+			}else if (!check(mail)) {
+				document.getElementById("info").innerHTML=("邮箱不能包含空格！");
 				return 
 			}
 
