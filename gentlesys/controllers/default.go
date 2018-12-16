@@ -325,7 +325,7 @@ func (c *ArticleController) Post() {
 			userAudit.TlArticleNums++
 			userAudit.DayArticleNums++
 
-			userAudit.UpdataDayArticle()
+			userAudit.UpdateDayArticle()
 			//将返回地址返回给客户端，让其跳转
 			ret := fmt.Sprintf("[0]/browse?sid=%d&aid=%d&page=0", u.SubId, r)
 			c.Ctx.WriteString(ret)
@@ -773,7 +773,7 @@ func (c *CommentController) Post() {
 		userAudit.TlCommentTimes++
 		userAudit.DayCommentTimes++
 
-		userAudit.UpdataDayCommentTimes()
+		userAudit.UpdateDayCommentTimes()
 
 		//更新数据库中的计数，如果更新数据库则这个相对比较费资源
 		ret, subobj := cachemanager.CacheSubjectObjMaps[u.SubId].ReadSubjectFromCache(u.ArtiId)
@@ -1481,7 +1481,7 @@ func (c *UserController) Post() {
 			case 1:
 				//禁言
 				aUserAu.Could = !aUserAu.Could
-				aUserAu.UpdataCould()
+				aUserAu.UpdateCould()
 				if aUserAu.Could {
 					c.Ctx.WriteString("[0]禁言用户成功")
 				} else {
@@ -1490,7 +1490,7 @@ func (c *UserController) Post() {
 			case 2:
 				//提升等级
 				aUserAu.Level++
-				aUserAu.UpdataLevel()
+				aUserAu.UpdateLevel()
 				c.Ctx.WriteString("[0]提升用户等级成功")
 			case 3:
 				//设置版主
@@ -1501,7 +1501,7 @@ func (c *UserController) Post() {
 							sid := sqlsys.IsSubMaster(u.UserId)
 							if -1 == sid {
 								subms.Masters = fmt.Sprintf("%s%d,", subms.Masters, u.UserId)
-								if subms.UpdataMasters() {
+								if subms.UpdateMasters() {
 									sqlsys.SetUserIsSubMaster(u.UserId, u.SubId, true)
 									c.Ctx.WriteString(fmt.Sprintf("[0]设置用户id %d 为 [%s] 版主成功", u.UserId, subject.GetSubjectById(u.SubId).Name))
 								}
@@ -1526,7 +1526,7 @@ func (c *UserController) Post() {
 							subms := &sqlsys.SubjectMaster{SubId: u.SubId}
 							if subms.ReadDb() {
 								subms.Masters = strings.Replace(subms.Masters, fmt.Sprintf("%d,", u.UserId), "", 1)
-								if subms.UpdataMasters() {
+								if subms.UpdateMasters() {
 									c.Ctx.WriteString(fmt.Sprintf("[0]取消用户id %d 的 [%s] 版主身份成功", u.UserId, subject.GetSubjectById(u.SubId).Name))
 								}
 							}

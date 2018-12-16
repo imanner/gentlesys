@@ -93,6 +93,29 @@ func initSubMaster() {
 	}
 }
 
+func commonWriteDb(v interface{}) int {
+	o := orm.NewOrm()
+
+	id, err := o.Insert(v)
+	if err != nil {
+		logs.Error(err, id)
+		return 0
+	}
+	return int(id)
+}
+
+func commonRead(v interface{}) bool {
+	o := orm.NewOrm()
+	err := o.Read(v)
+
+	if err == orm.ErrNoRows {
+		return false
+	} else if err == orm.ErrMissPK {
+		return false
+	}
+	return true
+}
+
 //用户的表
 type User struct {
 	Id      int       `orm:"unique"`                                                          //用户ID                                                    //ID
@@ -249,31 +272,11 @@ func (v *User) CheckUserAuth() int {
 }
 
 func (v *User) WriteDb() int {
-	o := orm.NewOrm()
-
-	id, err := o.Insert(v)
-	if err != nil {
-		logs.Error(err, id)
-		return 0
-	}
-
-	return int(id)
+	return commonWriteDb(v)
 }
 
 func (v *User) ReadDb() bool {
-	o := orm.NewOrm()
-	//aShare := Share{Id: id}
-
-	err := o.Read(v)
-
-	if err == orm.ErrNoRows {
-		logs.Error(err, "查询不到")
-		return false
-	} else if err == orm.ErrMissPK {
-		logs.Error(err, "找不到主键")
-		return false
-	}
-	return true
+	return commonRead(v)
 }
 
 //更新用户信息失败次数
@@ -303,7 +306,7 @@ func (v *UserAudit) IsAdmin() bool {
 	return audit.IsAdmin(v.UserId)
 }
 
-func (v *UserAudit) UpdataCould() bool {
+func (v *UserAudit) UpdateCould() bool {
 	o := orm.NewOrm()
 	if _, err := o.Update(v, "Could"); err == nil {
 		return true
@@ -311,7 +314,7 @@ func (v *UserAudit) UpdataCould() bool {
 	return false
 }
 
-func (v *UserAudit) UpdataLevel() bool {
+func (v *UserAudit) UpdateLevel() bool {
 	o := orm.NewOrm()
 	if _, err := o.Update(v, "Level"); err == nil {
 		return true
@@ -319,7 +322,7 @@ func (v *UserAudit) UpdataLevel() bool {
 	return false
 }
 
-func (v *UserAudit) UpdataDayArticle() bool {
+func (v *UserAudit) UpdateDayArticle() bool {
 	o := orm.NewOrm()
 	if _, err := o.Update(v, "TlArticleNums", "DayArticleNums"); err == nil {
 		return true
@@ -327,7 +330,7 @@ func (v *UserAudit) UpdataDayArticle() bool {
 	return false
 }
 
-func (v *UserAudit) UpdataDayCommentTimes() bool {
+func (v *UserAudit) UpdateDayCommentTimes() bool {
 	o := orm.NewOrm()
 	if _, err := o.Update(v, "TlCommentTimes", "DayCommentTimes"); err == nil {
 		return true
@@ -337,17 +340,7 @@ func (v *UserAudit) UpdataDayCommentTimes() bool {
 
 //在审计中获取该用户的信息，有则返回成功
 func (v *UserAudit) ReadDb() bool {
-	o := orm.NewOrm()
-	err := o.Read(v)
-
-	if err == orm.ErrNoRows {
-		//logs.Error(err, "查询不到")
-		return false
-	} else if err == orm.ErrMissPK {
-		//logs.Error(err, "找不到主键")
-		return false
-	}
-	return true
+	return commonRead(v)
 }
 
 //插入一条记录
@@ -693,19 +686,7 @@ func (v *PasswdReset) Delete() {
 }
 
 func (v *PasswdReset) ReadDb() bool {
-	o := orm.NewOrm()
-
-	err := o.Read(v)
-
-	if err == orm.ErrNoRows {
-		//logs.Error(err, "查询不到")
-		return false
-	} else if err == orm.ErrMissPK {
-		//logs.Error(err, "找不到主键")
-		return false
-	}
-
-	return true
+	return commonRead(v)
 }
 
 //数据库插入值
@@ -755,7 +736,7 @@ func (v *SubjectMaster) GetAllSubMasterRecords() *[]*SubjectMaster {
 	}
 }
 
-func (v *SubjectMaster) UpdataMasters() bool {
+func (v *SubjectMaster) UpdateMasters() bool {
 	o := orm.NewOrm()
 	if _, err := o.Update(v, "Masters"); err == nil {
 		return true
@@ -765,24 +746,8 @@ func (v *SubjectMaster) UpdataMasters() bool {
 
 //在审计中获取该用户的信息，有则返回成功
 func (v *SubjectMaster) ReadDb() bool {
-	o := orm.NewOrm()
-	err := o.Read(v)
-
-	if err == orm.ErrNoRows {
-		return false
-	} else if err == orm.ErrMissPK {
-		return false
-	}
-	return true
+	return commonRead(v)
 }
 func (v *SubjectMaster) WriteDb() int {
-	o := orm.NewOrm()
-
-	id, err := o.Insert(v)
-	if err != nil {
-		logs.Error(err, id)
-		return 0
-	}
-
-	return int(id)
+	return commonWriteDb(v)
 }
