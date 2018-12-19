@@ -70,7 +70,7 @@
         KindEditor.ready(function(K) {
             ke = K.create('#story', {
             pasteType:1,
-            allowImageUpload:false,
+            allowImageUpload:true,
             allowFlashUpload:false,
             allowMediaUpload:false,
             allowFileUpload:false,

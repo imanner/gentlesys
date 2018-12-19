@@ -619,7 +619,7 @@ func (v *CommitArticle) UpdateDb() bool {
 	v.Story = reg.DelErrorString(v.Story)
 
 	//图片加上自动适配
-	v.Story = reg.AddImagAutoClass(v.Story)
+	//v.Story = reg.AddImagAutoClass(v.Story)
 
 	err2 := ioutil.WriteFile(path, []byte(v.Story), 0644)
 	if err2 != nil {
@@ -658,7 +658,7 @@ func (v *CommitArticle) WriteDb() (int, *Subject) {
 	v.Story = reg.DelErrorString(v.Story)
 
 	//图片加上自动适配
-	v.Story = reg.AddImagAutoClass(v.Story)
+	//v.Story = reg.AddImagAutoClass(v.Story)
 
 	err2 := ioutil.WriteFile(path, []byte(v.Story), 0644)
 	if err2 != nil {

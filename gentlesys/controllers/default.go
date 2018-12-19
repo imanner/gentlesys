@@ -630,7 +630,7 @@ type Comment struct {
 	ArtiId    int    `form:"aid_" valid:"Required"` //文章Id
 	SubId     int    `form:"sid_" valid:"Min(0)"`
 	UserId    int    `form:"uid_" valid:"Required"`                              //文章的原作者
-	AnswerId  int    `form:"answer_" valid:"Min(-1)"`                             //回复第几楼
+	AnswerId  int    `form:"answer_" valid:"Min(-1)"`                            //回复第几楼
 	Anonymity bool   `form:"anonymity_"`                                         //是否匿名                       //主题id
 	Value     string `form:"comment_" valid:"Required;MinSize(1);MaxSize(1000)"` //评论内容
 }
@@ -737,7 +737,7 @@ func (c *CommentController) Post() {
 	//去掉kindeditor非法的字符
 	u.Value = reg.DelErrorString(u.Value)
 	//图片加上自动适配
-	u.Value = reg.AddImagAutoClass(u.Value)
+	//u.Value = reg.AddImagAutoClass(u.Value)
 	aData.Content = &u.Value
 	aData.Answer = proto.String("") //最开始是没有作者回复的
 	aData.Time = proto.String(time.Now().Format("2006-01-02 15:04:05"))
@@ -886,7 +886,7 @@ func (c *RegisterController) Post() {
 		if u.Mail == "" || strings.IndexByte(u.Mail, '@') == -1 {
 			c.Ctx.WriteString("[2]邮箱格式不对，请修正！这是找回密码的方式")
 			return
-		}else if isStrContainBlank(&u.Name) || isStrContainBlank(&u.Passwd) || isStrContainBlank(&u.Mail) {
+		} else if isStrContainBlank(&u.Name) || isStrContainBlank(&u.Passwd) || isStrContainBlank(&u.Mail) {
 			c.Ctx.WriteString("[2]不能含有空格类字符，格式不对，请修正！")
 			return
 		}
@@ -1687,5 +1687,72 @@ func (c *RemoveController) Post() {
 			}
 
 		}
+	}
+}
+
+//上传文件
+type UploadController struct {
+	beego.Controller
+}
+
+type uploadAckMsg struct {
+	Error   int64  `json:"error"`
+	Message string `json:"message"`
+	Url     string `json:"url"`
+}
+
+func (c *UploadController) Post() {
+	c.Data["Navigation"] = navigation.GetNav()
+	v := c.GetSession("id")
+	if v == nil || global.UploadImg == 0 {
+		ack := &uploadAckMsg{1, "没有权限上传图片", ""}
+		c.Data["json"] = ack
+		c.ServeJSON()
+		return
+	}
+
+	if global.UploadImg == 1 && (!audit.IsAdmin(v.(int)) && (-1 == sqlsys.IsSubMaster(v.(int)))) {
+		ack := &uploadAckMsg{1, "您没有权限上传图片", ""}
+		c.Data["json"] = ack
+		c.ServeJSON()
+		return
+	}
+
+	dir := c.GetString("dir", "")
+	if dir != "image" {
+		//目前只能上传图片
+		ack := &uploadAckMsg{2, "错误的文件类型", ""}
+		c.Data["json"] = ack
+		c.ServeJSON()
+		return
+	}
+
+	f, h, err := c.GetFile("imgFile") //获取上传的文件imgFile是kindeditor规定的字段
+	if err != nil {
+		//fmt.Println(err)
+		ack := &uploadAckMsg{1, "上传失败", ""}
+		c.Data["json"] = ack
+		c.ServeJSON()
+		return
+	} else {
+		if h.Size > int64(global.ImgSize*1024) {
+			//fmt.Printf("size is %d", h.Size)
+			ack := &uploadAckMsg{2, fmt.Sprintf("文件超出大小,图片最大%dk，", global.ImgSize), ""}
+			c.Data["json"] = ack
+			c.ServeJSON()
+			return
+		}
+		defer f.Close() //关闭上传的文件，不然的话会出现临时文件不能清除的情况
+
+		t := time.Now().Unix()
+		imgName := fmt.Sprintf("%d_%d_%s", t, v.(int), h.Filename)
+		savePath := fmt.Sprintf("%s/%s", global.UploadPath, imgName)
+		c.SaveToFile("imgFile", savePath) // 保存位置在 static/upload, 没有文件夹要先创建
+		//设置文件为只读，千万不可执行，防止图片木马
+		os.Chmod(savePath, 0444)
+		retUrl := fmt.Sprintf("/static/img/upload/%s", imgName)
+		ack := &uploadAckMsg{0, "上传成功", retUrl}
+		c.Data["json"] = ack
+		c.ServeJSON()
 	}
 }

@@ -48,5 +48,7 @@ func init() {
 	beego.Router("/remove", &controllers.RemoveController{})
 	//用户信息
 	beego.Router("/user", &controllers.UserController{})
+	//上传文件
+	beego.Router("/upload_json", &controllers.UploadController{})
 
 }

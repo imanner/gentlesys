@@ -58,6 +58,10 @@ var NginxAccessFlushTimes int //nginx更新主页（清楚缓存）的时间周�
 var level []string            //级别
 var PraiseNumsLimit int
 
+var UploadImg int //0不允许 1 管理者 2 全部
+var UploadPath string
+var ImgSize int //图片大小
+
 type RecordIndex struct {
 	Ref      string
 	Title    string
@@ -90,6 +94,12 @@ func init() {
 	}
 
 	PraiseNumsLimit = GetIntFromCfg("cache::PraiseNumsLimit", 100)
+
+	UploadImg = GetIntFromCfg("common::uploadImg", 0)
+	if UploadImg != 0 {
+		UploadPath = GetStringFromCfg("common::uploadPath", "static/img/upload")
+		ImgSize = GetIntFromCfg("common::imgSize", 0)
+	}
 }
 
 func GetUserLevelName(id int) string {
