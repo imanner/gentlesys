@@ -24,7 +24,8 @@ func init() {
 	pCron = cron.New()
 	pCron.Start()
 	runDailyTask()
-
+	
+	periodicMinTask = make(map[string]taskCallback)
 	if global.IsNginxCache {
 		pCronMin = cron.New()
 		pCronMin.Start()
@@ -44,7 +45,6 @@ func runDailyTask() {
 
 //每隔30分钟做事
 func runPeriodicMinTask() {
-	periodicMinTask = make(map[string]taskCallback)
 	spec := fmt.Sprintf("* */%d * * * *", global.NginxAccessFlushTimes)
 	pCronMin.AddFunc(spec, func() {
 		for _, k := range periodicMinTask {
